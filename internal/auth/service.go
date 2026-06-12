@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"AuthAPI/main/internal/auth/mail"
 	auth "AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
@@ -22,6 +23,9 @@ type Service struct {
 	users       users.Repository
 	refreshRepo auth.RefreshTokenRepository
 
+	emailVerifyrepo mail.EmailVerificationRepository
+	mailer          mail.Mailer
+
 	privateKey *rsa.PrivateKey
 	PublicKey  *rsa.PublicKey
 
@@ -31,12 +35,18 @@ type Service struct {
 func NewService(
 	users users.Repository,
 	refreshRepo auth.RefreshTokenRepository,
+
+	/* emailVerifyrepo mail.EmailVerificationRepository,
+	mailer mail.Mailer, */
+
 	privateKey *rsa.PrivateKey,
 	tokenSecret string,
 ) *Service {
 	return &Service{
 		users:       users,
 		refreshRepo: refreshRepo,
+		/* emailVerifyrepo: emailVerifyrepo,
+		mailer:          mailer, */
 		privateKey:  privateKey,
 		tokenSecret: tokenSecret,
 	}
@@ -54,7 +64,7 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		ID:           uuid.NewString(),
 		Email:        email,
 		PasswordHash: &hash,
-		IsActive:     true,
+		IsActive:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

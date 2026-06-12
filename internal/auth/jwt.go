@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"AuthAPI/main/internal/crypto"
+	"AuthAPI/main/internal/models"
+	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -9,7 +13,8 @@ import (
 )
 
 type Claims struct {
-	Email string `json:"email"`
+	UserID string `json:"userid"`
+	Email  string `json:"email"`
 	jwt.RegisteredClaims
 }
 
@@ -22,12 +27,15 @@ func GenerateAccessToken(
 	privateKey *rsa.PrivateKey,
 ) (string, error) {
 
-	claims := jwt.MapClaims{
-		"sub":   userID,
-		"email": email,
-		"exp":   time.Now().Add(15 * time.Minute).Unix(),
-		"iat":   time.Now().Unix(),
-		"iss":   "auth-service",
+	claims := Claims{
+		UserID: userID,
+		Email:  email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			Issuer:    "auth-service",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -38,12 +46,38 @@ func generateClientID() string {
 	return uuid.NewString()
 }
 
-func ParseAccessToken(tokenStr string, secret []byte) (*Claims, error) {
+func generateRefreshToken(userID, secret string) (string, *models.RefreshToken, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+
+	plain := base64.RawURLEncoding.EncodeToString(raw)
+	hash := crypto.HashToken(plain, secret)
+
+	now := time.Now()
+
+	rt := &models.RefreshToken{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		TokenHash: hash,
+		/* IPAddress: ip, */
+		ExpiresAt: now.Add(30 * 24 * time.Hour),
+		CreatedAt: now,
+	}
+
+	return plain, rt, nil
+}
+
+func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
 		&Claims{},
-		func(token *jwt.Token) (interface{}, error) {
-			return secret, nil
+		func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, jwt.ErrInvalidType
+			}
+			return pub, nil
 		},
 	)
 
@@ -57,4 +91,22 @@ func ParseAccessToken(tokenStr string, secret []byte) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func generateEmailVerificationToken(userID, secret string) (string, *models.EmailVerificationToken, error) {
+	raw := make([]byte, 32)
+	rand.Read(raw)
+
+	plain := base64.RawURLEncoding.EncodeToString(raw)
+	hash := crypto.HashToken(plain, secret)
+
+	now := time.Now()
+
+	return plain, &models.EmailVerificationToken{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		TokenHash: hash,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}, nil
 }

@@ -37,14 +37,11 @@ type LogoutRequest struct {
 
 /*
 	TODO:
-		- Revoke Endpoint
-		- Logout Endpoint
 		- Oauth
 		- Bind client ID to user-agent /  (future)
 			- Hash IP
 			- allow same subnet for mobile
 
-		- fix revoke all
 */
 
 func ClientIP(r *http.Request) string {
@@ -153,7 +150,12 @@ func logoutHandler(s *Service) http.HandlerFunc {
 
 func revokeAllHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID := r.Context().Value("user_id").(string)
+
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 
 		if err := s.RevokeAll(r.Context(), userID); err != nil {
 			http.Error(w, "failed to revoke tokens", http.StatusInternalServerError)

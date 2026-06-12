@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rsa"
 	"errors"
 	"net/http"
@@ -21,19 +22,31 @@ func JWTMiddleware(pub *rsa.PublicKey) func(http.Handler) http.Handler {
 
 			tokenStr := strings.TrimPrefix(auth, "Bearer ")
 
-			token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
-				if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-					return nil, errors.New("unexpected signing method")
-				}
-				return pub, nil
-			})
+			token, err := jwt.ParseWithClaims(
+				tokenStr, &Claims{},
+				func(t *jwt.Token) (any, error) {
+					if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+						return nil, errors.New("unexpected signing method")
+					}
+					return pub, nil
+				},
+			)
 
 			if err != nil || !token.Valid {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			claims, ok := token.Claims.(*Claims)
+			if !ok {
+				http.Error(w, "invalid claims", http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID)
+			ctx = context.WithValue(ctx, ContextEmail, claims.Email)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
