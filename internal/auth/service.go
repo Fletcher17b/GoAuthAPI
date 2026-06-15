@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,11 @@ import (
 const ErrInvalidCredentials error.err = "Invalid Credentials"
 const ErrInvalidToken string = "Invalid Token"
 */
+
+/*
+	Todo: Activate user method on repo
+*/
+
 type Service struct {
 	users       users.Repository
 	refreshRepo auth.RefreshTokenRepository
@@ -36,19 +42,19 @@ func NewService(
 	users users.Repository,
 	refreshRepo auth.RefreshTokenRepository,
 
-	/* emailVerifyrepo mail.EmailVerificationRepository,
-	mailer mail.Mailer, */
+	emailVerifyrepo mail.EmailVerificationRepository,
+	mailer mail.Mailer,
 
 	privateKey *rsa.PrivateKey,
 	tokenSecret string,
 ) *Service {
 	return &Service{
-		users:       users,
-		refreshRepo: refreshRepo,
-		/* emailVerifyrepo: emailVerifyrepo,
-		mailer:          mailer, */
-		privateKey:  privateKey,
-		tokenSecret: tokenSecret,
+		users:           users,
+		refreshRepo:     refreshRepo,
+		emailVerifyrepo: emailVerifyrepo,
+		mailer:          mailer,
+		privateKey:      privateKey,
+		tokenSecret:     tokenSecret,
 	}
 }
 
@@ -56,6 +62,13 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
 		return err
+	}
+
+	if s.emailVerifyrepo == nil {
+		panic("emailVerifyrepo not configured")
+	}
+	if s.mailer == nil {
+		panic("mailer not configured")
 	}
 
 	now := time.Now()
@@ -69,7 +82,85 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		UpdatedAt:    now,
 	}
 
-	return s.users.Create(ctx, user)
+	if err := s.users.Create(ctx, user); err != nil {
+		return err
+	}
+
+	rawToken := uuid.NewString()
+	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+
+	token := &models.EmailVerificationToken{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+
+	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+		return err
+	}
+
+	// TODO: Introduce WorkerPool here
+
+	go s.mailer.SendVerificationEmail(email, rawToken)
+
+	return nil
+
+}
+
+func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
+	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+
+	token, err := s.emailVerifyrepo.FindValidByHash(ctx, tokenHash)
+	if err != nil {
+		return errors.New("invalid or expired token")
+	}
+
+	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
+		return errors.New("token invalid")
+	}
+
+	now := time.Now()
+
+	if err := s.emailVerifyrepo.MarkUsed(ctx, token.ID, now); err != nil {
+		return err
+	}
+
+	// 	_ = s.emailVerifyrepo.DeleteByUserID(ctx, token.UserID)
+
+	return s.users.ActivateUser(ctx, token.UserID)
+}
+
+func (s *Service) ResendVerification(ctx context.Context, email string) error {
+	user, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		// TODO:
+		return err
+	}
+
+	if user.IsActive {
+		return nil
+	}
+
+	_ = s.emailVerifyrepo.DeleteByUserID(ctx, user.ID)
+
+	rawToken := uuid.NewString()
+	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+
+	token := &models.EmailVerificationToken{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+		return err
+	}
+
+	return s.mailer.SendVerificationEmail(user.Email, rawToken)
 }
 
 /*

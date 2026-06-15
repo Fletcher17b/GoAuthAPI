@@ -7,10 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"AuthAPI/main/internal/auth"
+	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
 )
 
 func main() {
+
 	database, err := db.Open("auth.db")
 	if err != nil {
 		log.Fatal(err)
@@ -35,7 +38,21 @@ func main() {
 
 	r := chi.NewRouter()
 
-	auth.RegisterRoutes(r, database, priv, pub, tokenSecret)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mailer := &mail.SMTPMailer{
+		Host:     cfg.SMTP.Host,
+		Port:     cfg.SMTP.Port,
+		Username: cfg.SMTP.Username,
+		Password: cfg.SMTP.Password,
+		From:     cfg.SMTP.From,
+		BaseURL:  cfg.AppBaseURL,
+	}
+
+	auth.RegisterRoutes(r, database, priv, pub, tokenSecret, mailer)
 
 	log.Println("Auth service running on :8080")
 	http.ListenAndServe(":8080", r)

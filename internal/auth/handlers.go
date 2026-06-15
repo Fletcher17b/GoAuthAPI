@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"AuthAPI/main/internal/auth/mail"
 	auth "AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/users"
 )
@@ -38,9 +39,18 @@ type LogoutRequest struct {
 /*
 	TODO:
 		- Oauth
+		- Email resend verification token
+		- Refactor Email Verification to use OTPs instead
+		- Rate limiting
 		- Bind client ID to user-agent /  (future)
 			- Hash IP
 			- allow same subnet for mobile
+		- CORS
+		- SMTP sub system
+		- Token rotation rules
+ 		- Email verification state machine
+		- design a background job system for your auth service
+		- how to monitor goroutines in prod
 
 */
 
@@ -78,6 +88,42 @@ func registerHandler(s *Service) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 	}
 }
+
+func verifyEmailHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rawToken := r.URL.Query().Get("t")
+		if rawToken == "" {
+			http.Error(w, "missing token", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.VerifyEmail(r.Context(), rawToken); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Email verified successfully, You can close this tab now"))
+	}
+}
+
+func resendVerificationHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		email := r.FormValue("email")
+		if email == "" {
+			http.Error(w, "email required", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.ResendVerification(r.Context(), email); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func loginHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -178,15 +224,22 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
-func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, PublicKey *rsa.PublicKey, tokenSecret string) {
+func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, PublicKey *rsa.PublicKey, tokenSecret string, mailerconfig *mail.SMTPMailer) {
 	repo := users.NewSQLiteRepository(db)
 	refreshrepo := auth.NewRefreshRepo(db)
-	service := NewService(repo, refreshrepo, privateKey, tokenSecret)
+	emailRepo := mail.NewEmailVerificationRepo(db)
+
+	service := NewService(repo, refreshrepo, emailRepo, mailerconfig, privateKey, tokenSecret)
 
 	r.Post("/register", registerHandler(service))
 	r.Post("/login", loginHandler(service))
 	r.Post("/refresh", refreshHandler(service))
 	r.Post("/logout", logoutHandler(service))
+	r.Get("/verify-email", verifyEmailHandler(service))
+	/* Todo:
+	- resend verification endpoint
+	- change URLs to standard
+	*/
 
 	r.Group(func(r chi.Router) {
 		r.Use(JWTMiddleware(PublicKey))

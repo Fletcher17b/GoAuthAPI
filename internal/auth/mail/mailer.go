@@ -1,5 +1,5 @@
 package mail
 
 type Mailer interface {
-	Send(to, subject, body string) error
+	SendVerificationEmail(to string, token string) error
 }

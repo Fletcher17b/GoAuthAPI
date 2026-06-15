@@ -12,4 +12,5 @@ type EmailVerificationRepository interface {
 	FindValidByHash(ctx context.Context, hash string) (*models.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, tokenID string, usedAt time.Time) error
 	DeleteAllForUser(ctx context.Context, userID string) error
+	DeleteByUserID(ctx context.Context, userID string) error
 }

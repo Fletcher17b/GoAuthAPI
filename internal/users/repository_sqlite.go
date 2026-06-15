@@ -67,3 +67,14 @@ func (r *sqliteRepo) FindByID(ctx context.Context, id string) (*models.User, err
 
 	return &u, nil
 }
+
+func (r *sqliteRepo) ActivateUser(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`UPDATE users
+		 SET is_active = 1, updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ?`,
+		userID,
+	)
+	return err
+}

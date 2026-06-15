@@ -81,3 +81,15 @@ func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, user
 	)
 	return err
 }
+
+func (r *EmailVerificationSQLiteRepo) DeleteByUserID(
+	ctx context.Context,
+	userID string,
+) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM email_verification_tokens WHERE user_id = ?`,
+		userID,
+	)
+	return err
+}

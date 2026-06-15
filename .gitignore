@@ -1,3 +1,4 @@
-env
+.env
 private.pem
 auth.db
+.gitignore
