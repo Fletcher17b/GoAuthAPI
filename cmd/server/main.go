@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 
 	"AuthAPI/main/internal/auth"
 	"AuthAPI/main/internal/auth/mail"
@@ -35,13 +36,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load public key: %v", err)
 	}
-
-	r := chi.NewRouter()
-
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	r := chi.NewRouter()
+
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   cfg.CORS_ALLOWED_ORIGINS,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
 	mailer := &mail.SMTPMailer{
 		Host:     cfg.SMTP.Host,
@@ -55,5 +63,5 @@ func main() {
 	auth.RegisterRoutes(r, database, priv, pub, tokenSecret, mailer)
 
 	log.Println("Auth service running on :8080")
-	http.ListenAndServe(":8080", r)
+	http.ListenAndServe(":8081", r)
 }

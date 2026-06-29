@@ -36,6 +36,10 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+var req struct {
+	Email string `json:"email"`
+}
+
 /*
 	TODO:
 		- Oauth
@@ -51,6 +55,7 @@ type LogoutRequest struct {
  		- Email verification state machine
 		- design a background job system for your auth service
 		- how to monitor goroutines in prod
+		- Add utility methodss
 
 */
 
@@ -134,6 +139,7 @@ func loginHandler(s *Service) http.HandlerFunc {
 		/* ip := ClientIP(r) */
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
 		}
 

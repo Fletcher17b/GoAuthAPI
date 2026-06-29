@@ -62,7 +62,7 @@ func (m *SMTPMailer) SendVerificationEmail(to string, token string) error {
 
 		<div class="footer">
 			<p>If you didn't create an account, you can safely ignore this email.</p>
-			<p>&copy; Your Company Name</p>
+			<p>&copy; Grillworks</p>
 		</div>
 	</div>
 </body>

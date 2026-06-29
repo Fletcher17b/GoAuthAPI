@@ -136,7 +136,7 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
 		// TODO:
-		return err
+		return nil
 	}
 
 	if user.IsActive {

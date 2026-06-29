@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -17,8 +18,9 @@ type SMTPConfig struct {
 }
 
 type Config struct {
-	AppBaseURL string
-	SMTP       SMTPConfig
+	AppBaseURL           string
+	SMTP                 SMTPConfig
+	CORS_ALLOWED_ORIGINS []string
 }
 
 func Load() (*Config, error) {
@@ -32,7 +34,8 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		AppBaseURL: os.Getenv("APP_BASE_URL"),
+		AppBaseURL:           os.Getenv("APP_BASE_URL"),
+		CORS_ALLOWED_ORIGINS: strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ","),
 		SMTP: SMTPConfig{
 			Host:     os.Getenv("SMTP_HOST"),
 			Port:     port,
