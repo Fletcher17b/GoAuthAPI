@@ -46,7 +46,7 @@ func generateClientID() string {
 	return uuid.NewString()
 }
 
-func generateRefreshToken(userID, secret string) (string, *models.RefreshToken, error) {
+func generateRefreshToken(userID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -60,6 +60,7 @@ func generateRefreshToken(userID, secret string) (string, *models.RefreshToken, 
 	rt := &models.RefreshToken{
 		ID:        uuid.NewString(),
 		UserID:    userID,
+		ClientID:  clientID,
 		TokenHash: hash,
 		/* IPAddress: ip, */
 		ExpiresAt: now.Add(30 * 24 * time.Hour),

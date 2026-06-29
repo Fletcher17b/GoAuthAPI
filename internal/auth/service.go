@@ -135,11 +135,12 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
-		// TODO:
-		return nil
+		return err
 	}
 
-	if user.IsActive {
+	// No matching account, or already verified: don't reveal which case
+	// this is, just behave as if the resend succeeded.
+	if user == nil || user.IsActive {
 		return nil
 	}
 
@@ -177,6 +178,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 	if err := crypto.ComparePassword(*user.PasswordHash, password); err != nil {
 		return "", "", "", fmt.Errorf("login failed: %w", ErrInvalidCredentials)
 	}
+	/*
+		if !user.IsActive {
+			return "", "", "", fmt.Errorf("login failed: %w", ErrEmailNotVerified)
+		} */
 
 	access, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
 	if err != nil {
@@ -184,13 +189,13 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 		return "", "", "", err
 	}
 
-	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, s.tokenSecret)
+	clientID := generateClientID()
+
+	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, clientID, s.tokenSecret)
 	if err != nil {
 		println("error point 2")
 		return "", "", "", err
 	}
-
-	clientID := generateClientID()
 
 	if err := s.refreshRepo.Create(ctx, refreshModel); err != nil {
 		println("error point 3")
@@ -232,7 +237,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 	}
 
 	newPlain, newModel, err :=
-		generateRefreshToken(user.ID, s.tokenSecret)
+		generateRefreshToken(user.ID, old.ClientID, s.tokenSecret)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}

@@ -42,7 +42,12 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			next.ServeHTTP(w, r)
+		})
+	})
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.CORS_ALLOWED_ORIGINS,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -62,6 +67,6 @@ func main() {
 
 	auth.RegisterRoutes(r, database, priv, pub, tokenSecret, mailer)
 
-	log.Println("Auth service running on :8080")
+	log.Println("Auth service running on :8081")
 	http.ListenAndServe(":8081", r)
 }
