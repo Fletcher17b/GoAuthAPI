@@ -86,8 +86,6 @@ func registerHandler(s *Service) http.HandlerFunc {
 			Password string `json:"password"`
 		}
 
-		println("ping here")
-
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
@@ -103,6 +101,7 @@ func registerHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// registerWithResponseHandler is the same as register except this sends back the user ID for the dependent API/service to recreate the user with the issued ID
 func registerWithResponseHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -300,7 +299,7 @@ func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, Public
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
-	r.Post("/register_poo", registerWithResponseHandler(service))
+	r.Post("/register_v2", registerWithResponseHandler(service))
 	/* Todo:
 	- change URLs to standard
 	*/
