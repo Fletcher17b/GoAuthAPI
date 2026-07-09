@@ -41,6 +41,11 @@ type ResendVerificationRequest struct {
 	Email string `json:"email"`
 }
 
+type RegisterVerboseResponse struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
+}
+
 /*
 	TODO:
 		- Oauth
@@ -81,6 +86,8 @@ func registerHandler(s *Service) http.HandlerFunc {
 			Password string `json:"password"`
 		}
 
+		println("ping here")
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
@@ -93,6 +100,36 @@ func registerHandler(s *Service) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func registerWithResponseHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		println("Ping")
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := s.RegisterAndReturnUser(
+			r.Context(),
+			req.Email,
+			req.Password,
+		)
+		if err != nil {
+			http.Error(w, "registration failed", http.StatusConflict)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -144,6 +181,7 @@ func loginHandler(s *Service) http.HandlerFunc {
 		}
 
 		/* ip := ClientIP(r) */
+		println("ping login")
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -262,6 +300,7 @@ func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, Public
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
+	r.Post("/register_poo", registerWithResponseHandler(service))
 	/* Todo:
 	- change URLs to standard
 	*/

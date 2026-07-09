@@ -109,6 +109,58 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 }
 
+func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password string) (*RegisterVerboseResponse, error) {
+
+	hash, err := crypto.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.emailVerifyrepo == nil {
+		panic("emailVerifyrepo not configured")
+	}
+	if s.mailer == nil {
+		panic("mailer not configured")
+	}
+
+	now := time.Now()
+
+	user := &models.User{
+		ID:           uuid.NewString(),
+		Email:        email,
+		PasswordHash: &hash,
+		IsActive:     false,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := s.users.Create(ctx, user); err != nil {
+		return nil, err
+	}
+
+	rawToken := uuid.NewString()
+	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+
+	token := &models.EmailVerificationToken{
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+
+	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+		return nil, err
+	}
+
+	go s.mailer.SendVerificationEmail(user.Email, rawToken)
+
+	return &RegisterVerboseResponse{
+		UserID: user.ID,
+		Role:   "USER",
+	}, nil
+}
+
 func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
