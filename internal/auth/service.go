@@ -116,14 +116,6 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 		return nil, err
 	}
 
-	//nts: todo move this out of here, it has no place here
-	if s.emailVerifyrepo == nil {
-		panic("emailVerifyrepo not configured")
-	}
-	if s.mailer == nil {
-		panic("mailer not configured")
-	}
-
 	now := time.Now()
 	user_id := uuid.NewString()
 

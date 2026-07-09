@@ -1,8 +1,7 @@
 package auth
 
 import (
-	"crypto/rsa"
-	"database/sql"
+	"AuthAPI/main/internal/config"
 	"encoding/json"
 	"errors"
 	"net"
@@ -11,10 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-
-	"AuthAPI/main/internal/auth/mail"
-	auth "AuthAPI/main/internal/auth/refresh"
-	"AuthAPI/main/internal/users"
 )
 
 /*
@@ -293,12 +288,15 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
-func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, PublicKey *rsa.PublicKey, tokenSecret string, mailerconfig *mail.SMTPMailer) {
-	repo := users.NewSQLiteRepository(db)
-	refreshrepo := auth.NewRefreshRepo(db)
-	emailRepo := mail.NewEmailVerificationRepo(db)
+func RegisterRoutes(
+	app config.App,
+	r chi.Router,
+) {
 
-	service := NewService(repo, refreshrepo, emailRepo, mailerconfig, privateKey, tokenSecret)
+	/* service := NewService(repo, refreshRepo, emailRepo, mailerconfig, privateKey, tokenSecret)
+	 */
+
+	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret)
 
 	r.Post("/register", registerHandler(service))
 	r.Post("/login", loginHandler(service))
@@ -306,13 +304,14 @@ func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, Public
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
-	r.Post("/signup", signupHandler(service))
+	// r.Post("/signup", signupHandler(service)) inactive for now
 	/* Todo:
 	- change URLs to standard
+	- remeber wtf does this mean???
 	*/
 
 	r.Group(func(r chi.Router) {
-		r.Use(JWTMiddleware(PublicKey))
+		r.Use(JWTMiddleware(app.PublicKey))
 		r.Get("/me", meHandler())
 		r.Post("/revoke-all", revokeAllHandler(service))
 	})

@@ -1,4 +1,4 @@
-package auth
+package refresh
 
 import (
 	"AuthAPI/main/internal/models"

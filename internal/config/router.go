@@ -1,20 +1,14 @@
 package config
 
 import (
-	"AuthAPI/main/internal/auth"
-	"crypto/rsa"
-	"database/sql"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
 
 func InitRouter(
-	db *sql.DB,
-	priv *rsa.PrivateKey,
-	pub *rsa.PublicKey,
-	tokenSecret string,
-	cfg Config,
+	cfg *Config,
+	registerBusinessRoutes func(r chi.Router),
 ) *chi.Mux {
 
 	r := chi.NewRouter()
@@ -25,10 +19,9 @@ func InitRouter(
 		})
 	})
 
-	corsOptions := LoadCors(cfg)
-
+	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)
+	registerBusinessRoutes(r)
 
-	auth.RegisterRoutes(r, db, priv, pub, tokenSecret, &cfg.SMTP)
 	return r
 }

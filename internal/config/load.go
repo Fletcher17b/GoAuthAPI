@@ -15,18 +15,9 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type SMTPConfig struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	From     string
-}
-
-type Config struct {
-	AppBaseURL           string
-	SMTP                 mail.SMTPMailer
-	CORS_ALLOWED_ORIGINS []string
+type envField struct {
+	key    string
+	target *string
 }
 
 func getEnv(key string) (string, error) {
@@ -134,6 +125,84 @@ func LoadMailerConfig(port int, baseURL string) (*mail.SMTPMailer, error) {
 		BaseURL:  baseURL,
 	}
 	return &SMTPConf, nil
+}
+
+func LoadDBconfigs() (DatabaseConfig, error) {
+	db_driver, err := getEnv("DB_DRIVER")
+	if err != nil {
+		log.Printf("no database driver configured in env, defaulting to sqlite")
+		db_driver = "sqlite"
+	}
+	sqlite_path, err := getEnv("SQLITE_PATH")
+	if err != nil {
+		log.Printf("No Sqlite path configured, defaulting to base dir")
+		sqlite_path = "auth.db"
+	}
+
+	SqliteConf := &SQLiteConfig{Path: sqlite_path}
+
+	var psql_conf_error = false
+
+	PSQL_HOST, err := getEnv("PSQL_HOST")
+	if err != nil {
+		log.Printf("No Postgres Host field found in env")
+		psql_conf_error = true
+	}
+
+	port, err := getEnv("PSQL_PORT")
+	PSQL_PORT, err := strconv.Atoi(port)
+	if err != nil {
+		log.Printf("No Postgres Port field found in env")
+		psql_conf_error = true
+	}
+
+	PSQL_USER, err := getEnv("PSQL_USER")
+	if err != nil {
+		log.Printf("No Postgres User field found in env")
+		psql_conf_error = true
+	}
+
+	PSQL_PASSWORD, err := getEnv("PSQL_PASSWORD")
+	if err != nil {
+		log.Printf("No Postgres Password field found in env")
+		psql_conf_error = true
+	}
+
+	PSQL_DATABASE, err := getEnv("PSQL_DATABASE")
+	if err != nil {
+		log.Printf("No Postgres Database field found in env")
+		psql_conf_error = true
+	}
+
+	PSQL_SSL, err := getEnv("PSQL_SSL")
+	if err != nil {
+		log.Printf("No Postgres SSL mode field found in env")
+		psql_conf_error = true
+	}
+
+	if psql_conf_error {
+		log.Printf("Postgres configuration failed, falling back to SQLITE config")
+		db_driver = "sqlite"
+	}
+
+	PostgresConfig := &PostgresConfig{
+		Host:     PSQL_HOST,
+		Port:     PSQL_PORT,
+		User:     PSQL_USER,
+		Password: PSQL_PASSWORD,
+		Database: PSQL_DATABASE,
+		SSLMode:  PSQL_SSL,
+	}
+
+	db_config := &DatabaseConfig{
+		Driver:       db_driver,
+		SqliteConf:   *SqliteConf,
+		PostgresConf: *PostgresConfig,
+	}
+
+	return *db_config, nil
+
+	//nts: if any future db config (creds, port etc) goes here
 }
 
 func parseEnvList(raw string) []string {

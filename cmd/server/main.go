@@ -4,17 +4,17 @@ import (
 	"log"
 	"net/http"
 
+	"AuthAPI/main/internal/auth"
+	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
+	"AuthAPI/main/internal/users"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
-
-	database, err := db.Open("auth.db")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	/* if err := db.RunMigrations(database, "migrations/001_init.sql"); err != nil {
 		log.Fatal(err)
 	} */
@@ -28,7 +28,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r := config.InitRouter(database, priv, pub, tokenSecret, *cfg)
+	database, err := db.Open(cfg.Database)
+	if err != nil {
+		log.Fatal(err)
+		panic(err)
+	}
+
+	app := &config.App{
+		UserRepo:    users.NewUserRepo(cfg.Database.Driver, database),
+		RefreshRepo: refresh.NewRefreshRepo(cfg.Database.Driver, database),
+		EmailRepo:   mail.NewEmailVerificationRepo(cfg.Database.Driver, database),
+		Mailer:      &cfg.SMTP,
+		PrivateKey:  priv,
+		PublicKey:   pub,
+		TokenSecret: tokenSecret,
+	}
+
+	r := config.InitRouter(cfg, func(r chi.Router) {
+		auth.RegisterRoutes(*app, r)
+	})
 
 	log.Println("Auth service running on :8081")
 	http.ListenAndServe(":8081", r)
