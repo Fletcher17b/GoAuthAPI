@@ -17,6 +17,16 @@ import (
 	"AuthAPI/main/internal/users"
 )
 
+/*
+type UserStatus string
+
+const (
+provisioning
+active
+full
+)
+*/
+
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
@@ -46,24 +56,24 @@ type RegisterVerboseResponse struct {
 	Role   string `json:"role"`
 }
 
-/*
-	TODO:
-		- Oauth
-		- Email resend verification token
-		- Refactor Email Verification to use OTPs instead
-		- Rate limiting
-		- Bind client ID to user-agent /  (future)
-			- Hash IP
-			- allow same subnet for mobile
-		- CORS
-		- SMTP sub system
-		- Token rotation rules
- 		- Email verification state machine
-		- design a background job system for your auth service
-		- how to monitor goroutines in prod
-		- Add utility methodss
+type SignupRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 
-*/
+type UserSignupMetada struct {
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Status   string `json:"status"`
+}
+
+type SignupResponse struct {
+	AccessToken  string           `json:"access_token"`
+	RefreshToken string           `json:"refresh_token"`
+	UserMetadata UserSignupMetada `json:"user_metadata"`
+}
 
 func ClientIP(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
@@ -101,24 +111,21 @@ func registerHandler(s *Service) http.HandlerFunc {
 	}
 }
 
-// registerWithResponseHandler is the same as register except this sends back the user ID for the dependent API/service to recreate the user with the issued ID
-func registerWithResponseHandler(s *Service) http.HandlerFunc {
+// signupHandler acts as a more complex register endpoint that works with the message broker to create a user across multiple consumer APIs
+// accepts (should) username
+func signupHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-
-		println("Ping")
+		var req SignupRequest
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
 
-		resp, err := s.RegisterAndReturnUser(
+		resp, err := s.SignupService(
 			r.Context(),
 			req.Email,
+			req.Username,
 			req.Password,
 		)
 		if err != nil {
@@ -299,7 +306,7 @@ func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, Public
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
-	r.Post("/register_v2", registerWithResponseHandler(service))
+	r.Post("/signup", signupHandler(service))
 	/* Todo:
 	- change URLs to standard
 	*/

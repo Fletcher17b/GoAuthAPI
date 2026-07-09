@@ -109,13 +109,14 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 }
 
-func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password string) (*RegisterVerboseResponse, error) {
+func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponse, error) {
 
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
 
+	//nts: todo move this out of here, it has no place here
 	if s.emailVerifyrepo == nil {
 		panic("emailVerifyrepo not configured")
 	}
@@ -124,9 +125,10 @@ func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password str
 	}
 
 	now := time.Now()
+	user_id := uuid.NewString()
 
 	user := &models.User{
-		ID:           uuid.NewString(),
+		ID:           user_id,
 		Email:        email,
 		PasswordHash: &hash,
 		IsActive:     false,
@@ -155,10 +157,15 @@ func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password str
 
 	go s.mailer.SendVerificationEmail(user.Email, rawToken)
 
-	return &RegisterVerboseResponse{
-		UserID: user.ID,
-		Role:   "USER",
-	}, nil
+	var response SignupResponse
+
+	response.UserMetadata.Status = "provisioning"
+
+	response.UserMetadata.Email = email
+	response.UserMetadata.UserID = user_id
+	response.UserMetadata.Username = username
+
+	return &response, nil
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
@@ -260,17 +267,24 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, string, time.Time, error) {
 
 	hash := crypto.HashToken(refreshToken, s.tokenSecret)
-
 	old, err := s.refreshRepo.FindValidByHash(ctx, hash)
 	if err != nil {
 		return "", "", time.Time{}, ErrInvalidToken
 	}
 
-	/* // 🔒 IP binding enforcement
-	if old.IPAddress != currentIP {
-		_ = s.refreshRepo.Revoke(ctx, old.ID)
-		return "", "", ErrIPMismatch
-	} */
+	if !old.RevokedAt.IsZero() {
+		/*
+			// 🔒 IP binding enforcement
+			if old.IPAddress != currentIP {
+				_ = s.refreshRepo.Revoke(ctx, old.ID)
+
+				// Sent "attempted use of token" log// notification logic through RabbitMQ here
+
+				return "", "", ErrIPMismatch
+			}
+		*/
+		return "", "", time.Time{}, ErrInvalidToken
+	}
 
 	_ = s.refreshRepo.Revoke(ctx, old.ID)
 
