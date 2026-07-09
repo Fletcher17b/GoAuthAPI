@@ -76,5 +76,18 @@ func (r *sqliteRepo) ActivateUser(ctx context.Context, userID string) error {
 		 WHERE user_id = ?`,
 		userID,
 	)
+
+	if err == nil {
+		_, err_2 := r.db.ExecContext(
+			ctx,
+			`UPDATE users
+		 SET email_verified = 1, updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ?`,
+			userID,
+		)
+		return err_2
+
+	}
+
 	return err
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -36,8 +37,13 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-var req struct {
+type ResendVerificationRequest struct {
 	Email string `json:"email"`
+}
+
+type RegisterVerboseResponse struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 }
 
 /*
@@ -86,11 +92,43 @@ func registerHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.Register(r.Context(), req.Email, req.Password); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+			/* http.Error(w, err.Error(), http.StatusConflict) */
+			http.Error(w, "registration failed", http.StatusConflict)
 			return
 		}
 
 		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+// registerWithResponseHandler is the same as register except this sends back the user ID for the dependent API/service to recreate the user with the issued ID
+func registerWithResponseHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		println("Ping")
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := s.RegisterAndReturnUser(
+			r.Context(),
+			req.Email,
+			req.Password,
+		)
+		if err != nil {
+			http.Error(w, "registration failed", http.StatusConflict)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -114,13 +152,18 @@ func verifyEmailHandler(s *Service) http.HandlerFunc {
 
 func resendVerificationHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		email := r.FormValue("email")
-		if email == "" {
+		var req ResendVerificationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Email == "" {
 			http.Error(w, "email required", http.StatusBadRequest)
 			return
 		}
 
-		if err := s.ResendVerification(r.Context(), email); err != nil {
+		if err := s.ResendVerification(r.Context(), req.Email); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -137,6 +180,7 @@ func loginHandler(s *Service) http.HandlerFunc {
 		}
 
 		/* ip := ClientIP(r) */
+		println("ping login")
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -145,7 +189,14 @@ func loginHandler(s *Service) http.HandlerFunc {
 
 		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			switch {
+			case errors.Is(err, ErrEmailNotVerified):
+				http.Error(w, err.Error(), http.StatusForbidden)
+			case errors.Is(err, ErrInvalidCredentials):
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+			default:
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
 			return
 		}
 
@@ -166,6 +217,11 @@ func refreshHandler(s *Service) http.HandlerFunc {
 		var req RefreshRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if req.RefreshToken == "" {
+			http.Error(w, "refresh_token required", http.StatusBadRequest)
 			return
 		}
 
@@ -242,8 +298,9 @@ func RegisterRoutes(r chi.Router, db *sql.DB, privateKey *rsa.PrivateKey, Public
 	r.Post("/refresh", refreshHandler(service))
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
+	r.Post("/resend-verification", resendVerificationHandler(service))
+	r.Post("/register_v2", registerWithResponseHandler(service))
 	/* Todo:
-	- resend verification endpoint
 	- change URLs to standard
 	*/
 

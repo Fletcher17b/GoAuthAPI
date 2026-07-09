@@ -4,11 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
-
-	"AuthAPI/main/internal/auth"
-	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
 )
@@ -24,44 +19,17 @@ func main() {
 		log.Fatal(err)
 	} */
 
-	// jwtSecret := []byte("dev-jwt-secret")
 	tokenSecret := "dev-refresh-secret"
 
-	priv, err := auth.LoadPrivateKey("private.pem")
-	if err != nil {
-		log.Fatalf("failed to load private key: %v", err)
-	}
+	priv, pub := config.LoadKeys()
 
-	pub, err := auth.LoadPublicKey("public.pem")
-	if err != nil {
-		log.Fatalf("failed to load public key: %v", err)
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	r := chi.NewRouter()
+	r := config.InitRouter(database, priv, pub, tokenSecret, *cfg)
 
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   cfg.CORS_ALLOWED_ORIGINS,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
-
-	mailer := &mail.SMTPMailer{
-		Host:     cfg.SMTP.Host,
-		Port:     cfg.SMTP.Port,
-		Username: cfg.SMTP.Username,
-		Password: cfg.SMTP.Password,
-		From:     cfg.SMTP.From,
-		BaseURL:  cfg.AppBaseURL,
-	}
-
-	auth.RegisterRoutes(r, database, priv, pub, tokenSecret, mailer)
-
-	log.Println("Auth service running on :8080")
+	log.Println("Auth service running on :8081")
 	http.ListenAndServe(":8081", r)
 }
