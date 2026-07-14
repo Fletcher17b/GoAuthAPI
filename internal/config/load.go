@@ -45,25 +45,36 @@ func Load() (*Config, error) {
 		return nil, errors.ErrUnsupported // nts: todo switch to correct error designation
 	}
 
+	db_config, err := LoadDBconfigs()
+	if err != nil {
+		return nil, fmt.Errorf("Error in DB config")
+	}
+
 	return &Config{
 		AppBaseURL:           baseURL,
 		CORS_ALLOWED_ORIGINS: parseEnvList(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		SMTP:                 *mailconfig,
+		Database:             db_config,
 	}, nil
 }
 
-func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey) {
-	priv, err := LoadPrivateKey("private.pem")
+func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey, string) {
+	priv, err := LoadPrivateKey("creds/private.pem")
 	if err != nil {
 		log.Fatalf("failed to load private key: %v", err)
 	}
 
-	pub, err := LoadPublicKey("public.pem")
+	pub, err := LoadPublicKey("creds/public.pem")
 	if err != nil {
 		log.Fatalf("failed to load public key: %v", err)
 	}
 
-	return priv, pub
+	tokenSecret, err := getEnv("TOKEN_SECRET")
+	if err != nil {
+		log.Fatalf("failed to token secret key: %v", err)
+	}
+
+	return priv, pub, tokenSecret
 }
 
 func LoadCors(cfg Config) *cors.Cors {

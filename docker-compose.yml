@@ -1,0 +1,94 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: appbackend
+      POSTGRES_USER: appbackend
+      POSTGRES_PASSWORD: appbackend
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/001b_init.sql:/docker-entrypoint-initdb.d/001b_init.sql:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appbackend -d appbackend"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+
+    restart: on-failure
+
+    ports:
+      - "8081:8081"
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./creds:/app/creds:ro
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - backend
+
+    deploy:
+      replicas: 2
+
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+
+      rollback_config:
+        parallelism: 1
+
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge

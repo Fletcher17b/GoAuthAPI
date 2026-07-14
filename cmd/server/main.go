@@ -15,13 +15,8 @@ import (
 )
 
 func main() {
-	/* if err := db.RunMigrations(database, "migrations/001_init.sql"); err != nil {
-		log.Fatal(err)
-	} */
 
-	tokenSecret := "dev-refresh-secret"
-
-	priv, pub := config.LoadKeys()
+	priv, pub, tokenSecret := config.LoadKeys()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -33,6 +28,12 @@ func main() {
 		log.Fatal(err)
 		panic(err)
 	}
+
+	if err := db.RunMigrations(database, cfg.Database.Driver); err != nil {
+		log.Fatal(err)
+	}
+
+	//nts todo: migration versioning
 
 	app := &config.App{
 		UserRepo:    users.NewUserRepo(cfg.Database.Driver, database),

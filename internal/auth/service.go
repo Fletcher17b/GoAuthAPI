@@ -215,10 +215,6 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	return s.mailer.SendVerificationEmail(user.Email, rawToken)
 }
 
-/*
-	TODO: add ip binding implementation here
-*/
-
 func (s *Service) Login(ctx context.Context, email, password string) (string, string, string, error) {
 
 	user, err := s.users.FindByEmail(ctx, email)
@@ -263,9 +259,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 	if err != nil {
 		return "", "", time.Time{}, ErrInvalidToken
 	}
-
-	if !old.RevokedAt.IsZero() {
-		/*
+	// nts todo: Reuse Detection
+	// findbyvalidHash currently only sends tokens that do not have revoked_at as NULL,
+	// refactor it to send back even if it is null, then check date and compare to see token reuse
+	/* if !old.RevokedAt.IsZero() {
 			// 🔒 IP binding enforcement
 			if old.IPAddress != currentIP {
 				_ = s.refreshRepo.Revoke(ctx, old.ID)
@@ -274,9 +271,9 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 
 				return "", "", ErrIPMismatch
 			}
-		*/
+
 		return "", "", time.Time{}, ErrInvalidToken
-	}
+	} */
 
 	_ = s.refreshRepo.Revoke(ctx, old.ID)
 

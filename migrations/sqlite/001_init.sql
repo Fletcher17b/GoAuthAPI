@@ -59,3 +59,6 @@ CREATE TABLE user_roles (
     PRIMARY KEY (user_id, role),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+
+

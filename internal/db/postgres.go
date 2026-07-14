@@ -6,6 +6,25 @@ import (
 	"fmt"
 )
 
+func postgresSchemaExists(db *sql.DB) (bool, error) {
+	var exists bool
+
+	err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 'public'
+			  AND table_name = 'users'
+		)
+	`).Scan(&exists)
+
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
+
 func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -26,6 +45,20 @@ func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+
+	/* ok, err := postgresSchemaExists(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	} */
+
+	/* if !ok {
+			db.Close()
+			return nil, fmt.Errorf(
+				`postgres database is reachable but has no application schema.
+	Run the PostgreSQL migrations before starting the service`,
+			)
+		} */
 
 	return db, nil
 }
