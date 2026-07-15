@@ -14,9 +14,17 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// ripeo la shit question
+func ripeo_lashit(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 
-	priv, pub := config.LoadKeys()
+	priv, pub, err := config.LoadKeys()
+	ripeo_lashit(err)
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -52,5 +60,8 @@ func main() {
 	})
 
 	log.Println("Auth service running on :8081")
-	http.ListenAndServe(":8081", r)
+
+	if err := http.ListenAndServe(":8081", r); err != nil {
+		log.Fatalf("HTTP server exited: %v", err)
+	}
 }

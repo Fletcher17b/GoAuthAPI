@@ -1,9 +1,9 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
-      DB_HOST: db
       POSTGRES_DB: authDB
       POSTGRES_USER: auth_db
       POSTGRES_PASSWORD: auth_db123
@@ -27,21 +27,26 @@ services:
 
     networks:
       - backend
+    deploy:
+      replicas: 1
+      
+      restart_policy:
+        condition: on-failure
+      resources:
+          reservations:
+            cpus: "0.25"
+            memory: 128M
+          limits:
+            cpus: "1.0"
+            memory: 4096M
+
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: authapi:latest
-    restart: on-failure
     ports:
       - "8081:8081"
     env_file:
-      - .env.compose
-    volumes:
-      - ./creds:/app/creds:ro
-    depends_on:
-      - db
+      - .env.swarm
     logging:
       driver: json-file
       options:
@@ -53,17 +58,34 @@ services:
       - authapi_private_key
       - authapi_public_key
 
+    deploy:
+      replicas: 2
+      restart_policy:
+        delay: 5s
+        max_attempts: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
 secrets:
   authapi_private_key:
-    file: ./creds/private.pem
+    external: true
   authapi_public_key:
-    file: ./creds/public.pem
-
+    external: true
 
 volumes:
   postgres_data:
 
 networks:
   backend:
-    name: authapi-compose-backend
-    driver: bridge
+    driver: overlay

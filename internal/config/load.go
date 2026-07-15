@@ -20,16 +20,41 @@ type envField struct {
 	target *string
 }
 
-func getEnv(key string) (string, error) {
+/* func getEnv(key string) (string, error) {
 	value := os.Getenv(key)
 	if value == "" {
 		return "", fmt.Errorf("Missing environment variable %q", key)
 	}
 	return value, nil
+} */
+
+func getEnv(key string) (string, error) {
+	// 1. Normal environment variable
+	if value := os.Getenv(key); value != "" {
+		return value, nil
+	}
+
+	return "", fmt.Errorf("%s not found", key)
+}
+
+func getFilePath(envKey string, secretName string, defaultPath string) string {
+	// 1. Explicit path wins.
+	if path := os.Getenv(envKey); path != "" {
+		return path
+	}
+
+	// 2. Docker secrets (Compose + Swarm compatible).
+	secretPath := "/run/secrets/" + secretName
+	if _, err := os.Stat(secretPath); err == nil {
+		return secretPath
+	}
+
+	// 3. Local development.
+	return defaultPath
 }
 
 func Load() (*Config, error) {
-	if err := godotenv.Load(".env"); err != nil {
+	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
 	}
 
@@ -58,27 +83,31 @@ func Load() (*Config, error) {
 	}, nil
 }
 
-func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey) {
-	privateKeyPath := os.Getenv("AUTH_PRIVATE_KEY_PATH")
-	if privateKeyPath == "" {
-		privateKeyPath = "creds/private.pem" // development fallback
-	}
+func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey, error) {
 
-	publicKeyPath := os.Getenv("AUTH_PUBLIC_KEY_PATH")
-	if publicKeyPath == "" {
-		publicKeyPath = "creds/public.pem"
-	}
+	privatePath := getFilePath(
+		"AUTH_PRIVATE_KEY_PATH",
+		"authapi_private_key",
+		"creds/private.pem",
+	)
 
-	priv, err := LoadPrivateKey(privateKeyPath)
+	publicPath := getFilePath(
+		"AUTH_PUBLIC_KEY_PATH",
+		"authapi_public_key",
+		"creds/public.pem",
+	)
+
+	priv, err := LoadPrivateKey(privatePath)
 	if err != nil {
-		log.Fatal("Load failure stage 3: failed to load Rsakeys")
-	}
-	pub, err := LoadPublicKey(publicKeyPath)
-	if err != nil {
-		log.Fatal("Load failure stage 3: failed to load Rsakeys")
+		return nil, nil, err
 	}
 
-	return priv, pub
+	pub, err := LoadPublicKey(publicPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return priv, pub, nil
 }
 
 func LoadTokenSecret() (string, error) {
