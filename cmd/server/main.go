@@ -16,21 +16,23 @@ import (
 
 func main() {
 
-	priv, pub, tokenSecret := config.LoadKeys()
+	priv, pub := config.LoadKeys()
 
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	database, err := db.Open(cfg.Database)
+	tokenSecret, err := config.LoadTokenSecret()
 	if err != nil {
 		log.Fatal(err)
 		panic(err)
 	}
 
-	if err := db.RunMigrations(database, cfg.Database.Driver); err != nil {
+	database, err := db.Open(cfg.Database)
+	if err != nil {
 		log.Fatal(err)
+		panic(err)
 	}
 
 	//nts todo: migration versioning

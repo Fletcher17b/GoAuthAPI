@@ -58,23 +58,36 @@ func Load() (*Config, error) {
 	}, nil
 }
 
-func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey, string) {
-	priv, err := LoadPrivateKey("creds/private.pem")
-	if err != nil {
-		log.Fatalf("failed to load private key: %v", err)
+func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey) {
+	privateKeyPath := os.Getenv("AUTH_PRIVATE_KEY_PATH")
+	if privateKeyPath == "" {
+		privateKeyPath = "creds/private.pem" // development fallback
 	}
 
-	pub, err := LoadPublicKey("creds/public.pem")
-	if err != nil {
-		log.Fatalf("failed to load public key: %v", err)
+	publicKeyPath := os.Getenv("AUTH_PUBLIC_KEY_PATH")
+	if publicKeyPath == "" {
+		publicKeyPath = "creds/public.pem"
 	}
 
+	priv, err := LoadPrivateKey(privateKeyPath)
+	if err != nil {
+		log.Fatal("Load failure stage 3: failed to load Rsakeys")
+	}
+	pub, err := LoadPublicKey(publicKeyPath)
+	if err != nil {
+		log.Fatal("Load failure stage 3: failed to load Rsakeys")
+	}
+
+	return priv, pub
+}
+
+func LoadTokenSecret() (string, error) {
 	tokenSecret, err := getEnv("TOKEN_SECRET")
 	if err != nil {
 		log.Fatalf("failed to token secret key: %v", err)
+		return "", err
 	}
-
-	return priv, pub, tokenSecret
+	return tokenSecret, nil
 }
 
 func LoadCors(cfg Config) *cors.Cors {
@@ -138,20 +151,9 @@ func LoadMailerConfig(port int, baseURL string) (*mail.SMTPMailer, error) {
 	return &SMTPConf, nil
 }
 
-func LoadDBconfigs() (DatabaseConfig, error) {
-	db_driver, err := getEnv("DB_DRIVER")
-	if err != nil {
-		log.Printf("no database driver configured in env, defaulting to sqlite")
-		db_driver = "sqlite"
-	}
-	sqlite_path, err := getEnv("SQLITE_PATH")
-	if err != nil {
-		log.Printf("No Sqlite path configured, defaulting to base dir")
-		sqlite_path = "auth.db"
-	}
-
-	SqliteConf := &SQLiteConfig{Path: sqlite_path}
-
+// temporal function delete this later:
+func PostgresConfLoader() (PostgresConfig, error) {
+	var emptyConf PostgresConfig
 	var psql_conf_error = false
 
 	PSQL_HOST, err := getEnv("PSQL_HOST")
@@ -161,9 +163,15 @@ func LoadDBconfigs() (DatabaseConfig, error) {
 	}
 
 	port, err := getEnv("PSQL_PORT")
-	PSQL_PORT, err := strconv.Atoi(port)
 	if err != nil {
 		log.Printf("No Postgres Port field found in env")
+		psql_conf_error = true
+	}
+
+	// Parse the port string to int safely
+	PSQL_PORT, err := strconv.Atoi(port)
+	if err != nil && port != "" {
+		log.Printf("Invalid Postgres Port format: %v", err)
 		psql_conf_error = true
 	}
 
@@ -185,33 +193,73 @@ func LoadDBconfigs() (DatabaseConfig, error) {
 		psql_conf_error = true
 	}
 
-	PSQL_SSL, err := getEnv("PSQL_SSL")
+	/* PSQL_SSL, err := getEnv("PSQL_SSL")
 	if err != nil {
 		log.Printf("No Postgres SSL mode field found in env")
 		psql_conf_error = true
-	}
+	} */
 
 	if psql_conf_error {
 		log.Printf("Postgres configuration failed, falling back to SQLITE config")
-		db_driver = "sqlite"
+		return emptyConf, errors.New("psql config failure")
 	}
 
-	PostgresConfig := &PostgresConfig{
+	config := PostgresConfig{
 		Host:     PSQL_HOST,
 		Port:     PSQL_PORT,
 		User:     PSQL_USER,
 		Password: PSQL_PASSWORD,
 		Database: PSQL_DATABASE,
-		SSLMode:  PSQL_SSL,
+		/* SSLMode:  PSQL_SSL, */
 	}
 
-	db_config := &DatabaseConfig{
-		Driver:       db_driver,
-		SqliteConf:   *SqliteConf,
-		PostgresConf: *PostgresConfig,
+	return config, nil
+}
+
+func setupSQLiteConfig() SQLiteConfig {
+	sqlite_path, err := getEnv("SQLITE_PATH")
+	if err != nil {
+		log.Printf("No Sqlite path configured, defaulting to base dir")
+		sqlite_path = "auth.db"
+	}
+	return SQLiteConfig{Path: sqlite_path}
+}
+
+func LoadDBconfigs() (DatabaseConfig, error) {
+	db_driver, err := getEnv("DB_DRIVER")
+	if err != nil {
+		log.Printf("no database driver configured in env, defaulting to sqlite")
+		db_driver = "sqlite"
 	}
 
-	return *db_config, nil
+	db_config := DatabaseConfig{
+		Driver: db_driver,
+	}
+
+	switch db_driver {
+	case "postgres":
+		pgConf, err := PostgresConfLoader()
+		if err != nil {
+			log.Printf("Postgres setup failed: %v. Falling back to sqlite.", err)
+			db_config.Driver = "sqlite"
+			db_config.SqliteConf = setupSQLiteConfig()
+			return db_config, nil
+		}
+		db_config.PostgresConf = pgConf
+		return db_config, nil
+
+	case "sqlite":
+		sqlite_path, err := getEnv("SQLITE_PATH")
+		if err != nil {
+			log.Printf("No Sqlite path configured, defaulting to base dir")
+			sqlite_path = "auth.db"
+		}
+		db_config.SqliteConf = SQLiteConfig{Path: sqlite_path}
+		return db_config, nil
+
+	default:
+		return db_config, fmt.Errorf("unknown database driver: %s", db_driver)
+	}
 
 	//nts: if any future db config (creds, port etc) goes here
 }

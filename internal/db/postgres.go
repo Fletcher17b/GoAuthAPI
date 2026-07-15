@@ -4,7 +4,17 @@ import (
 	"AuthAPI/main/internal/config"
 	"database/sql"
 	"fmt"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+func RunPostgresMigrations(db *sql.DB) error {
+	return executeMigration(
+		db,
+		"./migrations/postgres/001_init.sql",
+	)
+}
 
 func postgresSchemaExists(db *sql.DB) (bool, error) {
 	var exists bool
@@ -27,38 +37,43 @@ func postgresSchemaExists(db *sql.DB) (bool, error) {
 
 func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		"host=%s port=%d user=%s password=%s dbname=%s",
 		cfg.Host,
 		cfg.Port,
 		cfg.User,
 		cfg.Password,
 		cfg.Database,
-		cfg.SSLMode,
+		/* cfg.SSLMode, */
 	)
 
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return nil, err
-	}
+	var db *sql.DB
+	var err error
 
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, err
-	}
+	maxTries := 5
+	backoff := 1 * time.Second
 
-	/* ok, err := postgresSchemaExists(db)
-	if err != nil {
-		db.Close()
-		return nil, err
-	} */
-
-	/* if !ok {
+	for attempt := 1; attempt <= maxTries; attempt++ {
+		db, err = sql.Open("pgx/v5", dsn)
+		if err == nil {
+			err = db.Ping()
+			if err == nil {
+				break
+			}
+		}
+		if db != nil {
 			db.Close()
-			return nil, fmt.Errorf(
-				`postgres database is reachable but has no application schema.
-	Run the PostgreSQL migrations before starting the service`,
-			)
-		} */
+		}
+
+		if attempt == maxTries {
+			return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", maxTries, err)
+		}
+		time.Sleep(backoff)
+	}
+
+	if err := RunPostgresMigrations(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	return db, nil
 }

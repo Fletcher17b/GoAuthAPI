@@ -33,7 +33,7 @@ type PostgresConfig struct {
 	User     string
 	Password string
 	Database string
-	SSLMode  string
+	/* SSLMode  string */
 }
 
 type DatabaseConfig struct {

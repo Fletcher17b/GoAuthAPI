@@ -3,9 +3,21 @@ package db
 import (
 	"database/sql"
 	"log"
+	"os"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// ex-RunMigrations(db, path)
+func SqliteMigration(db *sql.DB, path string) error {
+	migration, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(string(migration))
+	return err
+}
 
 func schemaExists(db *sql.DB) (bool, error) {
 	var name string
@@ -46,7 +58,7 @@ func OpenSQLite(path string) (*sql.DB, error) {
 
 	if !ok {
 		log.Println("Creating sqlite database...")
-		if err := RunMigrations(db, "migrations/sqlite/001_init.sql"); err != nil {
+		if err := SqliteMigration(db, "migrations/sqlite/001_init.sql"); err != nil {
 			db.Close()
 			return nil, err
 		}

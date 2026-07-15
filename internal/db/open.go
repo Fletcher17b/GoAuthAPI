@@ -7,8 +7,6 @@ import (
 )
 
 func Open(cfg config.DatabaseConfig) (*sql.DB, error) {
-	println(cfg.Driver)
-
 	switch cfg.Driver {
 	case "sqlite":
 		return OpenSQLite(cfg.SqliteConf.Path)
