@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"time"
 
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
 
 	"github.com/google/uuid"
 )
 
 type refreshRepo struct {
-	db *sql.DB
+	db dbtx.DBTX
 }
 
 func NewSqliteRefreshRepo(db *sql.DB) RefreshTokenRepository {
@@ -20,6 +21,18 @@ func NewSqliteRefreshRepo(db *sql.DB) RefreshTokenRepository {
 
 func (r *refreshRepo) Create(ctx context.Context, t *models.RefreshToken) error {
 	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO refresh_tokens (
+			token_id, user_id, token_hash, client_id,
+			expires_at, created_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.UserID, t.TokenHash, t.ClientID,
+		t.ExpiresAt, t.CreatedAt,
+	)
+	return err
+}
+
+func (r *refreshRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.RefreshToken) error {
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO refresh_tokens (
 			token_id, user_id, token_hash, client_id,
 			expires_at, created_at

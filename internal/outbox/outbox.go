@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
 	"context"
 	"database/sql"
@@ -18,5 +19,6 @@ func NewOutboxRepoAuxiliary(driver string, db *sql.DB) OutboxRepo {
 }
 
 type OutboxRepo interface {
+	CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.OutboxEvent) error
 	Create(ctx context.Context, u *models.OutboxEvent) error
 }

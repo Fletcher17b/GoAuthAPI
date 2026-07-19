@@ -1,7 +1,8 @@
 package auth
 
 import (
-	"AuthAPI/main/internal/config"
+	"AuthAPI/main/internal/auth/app"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net"
@@ -85,7 +86,7 @@ type SignupResponseTokens struct {
 	*/
 }
 
-type SignupResponseUserInfo struct {
+type UserInfo struct {
 	UserID    uuid.UUID `json:"user_id"`
 	Email     string    `json:"email"`
 	Username  string    `json:"username"`
@@ -94,8 +95,8 @@ type SignupResponseUserInfo struct {
 }
 
 type SignupResponseRefactor struct {
-	UserToken SignupResponseTokens   `json:"tokens"`
-	UserInfo  SignupResponseUserInfo `json:"user"`
+	UserToken SignupResponseTokens `json:"tokens"`
+	UserInfo  UserInfo             `json:"user"`
 }
 
 //////////////////////////////////
@@ -325,14 +326,15 @@ func meHandler() http.HandlerFunc {
 }
 
 func RegisterRoutes(
-	app config.App,
+	app app.App,
 	r chi.Router,
+	db *sql.DB,
 ) {
 
 	/* service := NewService(repo, refreshRepo, emailRepo, mailerconfig, privateKey, tokenSecret)
 	 */
 
-	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo)
+	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo, db)
 
 	r.Post("/register", registerHandler(service))
 	r.Post("/login", loginHandler(service))

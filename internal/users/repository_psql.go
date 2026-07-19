@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"errors"
 
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
 
 	"github.com/google/uuid"
 )
 
 type postgresRepo struct {
-	db *sql.DB
+	db dbtx.DBTX
 }
 
 func NewPostgresRepository(db *sql.DB) Repository {
@@ -20,6 +21,19 @@ func NewPostgresRepository(db *sql.DB) Repository {
 
 func (r *postgresRepo) Create(ctx context.Context, u *models.User) error {
 	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO users (
+			user_id, email, username, password_hash,
+			email_verified, is_active, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		u.ID, u.Email, u.Username, u.PasswordHash,
+		u.EmailVerified, u.IsActive,
+		u.CreatedAt, u.UpdatedAt,
+	)
+	return err
+}
+
+func (r *postgresRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.User) error {
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO users (
 			user_id, email, username, password_hash,
 			email_verified, is_active, created_at, updated_at

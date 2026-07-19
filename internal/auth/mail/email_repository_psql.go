@@ -6,13 +6,14 @@ import (
 	"errors"
 	"time"
 
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
 
 	"github.com/google/uuid"
 )
 
 type EmailVerificationPostgresRepo struct {
-	db *sql.DB
+	db dbtx.DBTX
 }
 
 func NewEmailVerificationPostgresRepo(db *sql.DB) EmailVerificationRepository {
@@ -21,6 +22,21 @@ func NewEmailVerificationPostgresRepo(db *sql.DB) EmailVerificationRepository {
 
 func (r *EmailVerificationPostgresRepo) Create(ctx context.Context, t *models.EmailVerificationToken) error {
 	_, err := r.db.ExecContext(
+		ctx,
+		`INSERT INTO email_verification_tokens
+		 (token_id, user_id, token_hash, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		t.ID,
+		t.UserID,
+		t.TokenHash,
+		t.ExpiresAt,
+		t.CreatedAt,
+	)
+	return err
+}
+
+func (r *EmailVerificationPostgresRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.EmailVerificationToken) error {
+	_, err := exec.ExecContext(
 		ctx,
 		`INSERT INTO email_verification_tokens
 		 (token_id, user_id, token_hash, expires_at, created_at)

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"AuthAPI/main/internal/auth"
+	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/config"
@@ -41,7 +42,7 @@ func main() {
 
 	//nts todo: migration versioning
 
-	app := &config.App{
+	app := &app.App{
 		UserRepo:    users.NewUserRepo(cfg.Database.Driver, database),
 		RefreshRepo: refresh.NewRefreshRepo(cfg.Database.Driver, database),
 		EmailRepo:   mail.NewEmailVerificationRepo(cfg.Database.Driver, database),
@@ -53,7 +54,7 @@ func main() {
 	}
 
 	r := config.InitRouter(cfg, func(r chi.Router) {
-		auth.RegisterRoutes(*app, r)
+		auth.RegisterRoutes(*app, r, database)
 	})
 
 	log.Println("Auth service running on :8081")

@@ -6,13 +6,15 @@ import (
 	"errors"
 	"time"
 
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
 
 	"github.com/google/uuid"
 )
 
 type EmailVerificationSQLiteRepo struct {
-	db *sql.DB
+	/* db *sql.DB */
+	db dbtx.DBTX
 }
 
 func NewEmailVerificationSQLiteRepo(db *sql.DB) EmailVerificationRepository {
@@ -21,6 +23,21 @@ func NewEmailVerificationSQLiteRepo(db *sql.DB) EmailVerificationRepository {
 
 func (r *EmailVerificationSQLiteRepo) Create(ctx context.Context, t *models.EmailVerificationToken) error {
 	_, err := r.db.ExecContext(
+		ctx,
+		`INSERT INTO email_verification_tokens
+		 (token_id, user_id, token_hash, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		t.ID,
+		t.UserID,
+		t.TokenHash,
+		t.ExpiresAt,
+		t.CreatedAt,
+	)
+	return err
+}
+
+func (r *EmailVerificationSQLiteRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.EmailVerificationToken) error {
+	_, err := exec.ExecContext(
 		ctx,
 		`INSERT INTO email_verification_tokens
 		 (token_id, user_id, token_hash, expires_at, created_at)

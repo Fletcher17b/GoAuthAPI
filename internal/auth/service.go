@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,10 +26,12 @@ const ErrInvalidToken string = "Invalid Token"
 */
 
 /*
-	Todo: Activate user method on repo
+	Todo: Switch service struct to use app struct
 */
 
 type Service struct {
+	db *sql.DB
+
 	users       users.Repository
 	refreshRepo auth.RefreshTokenRepository
 
@@ -43,6 +46,9 @@ type Service struct {
 	outboxrepo outbox.OutboxRepo
 }
 
+type SignUpDataDelagateStruct struct {
+}
+
 func NewService(
 	users users.Repository,
 	refreshRepo auth.RefreshTokenRepository,
@@ -54,6 +60,7 @@ func NewService(
 	tokenSecret string,
 
 	outboxrepo outbox.OutboxRepo,
+	db *sql.DB,
 
 ) *Service {
 	return &Service{
@@ -64,6 +71,7 @@ func NewService(
 		privateKey:      privateKey,
 		tokenSecret:     tokenSecret,
 		outboxrepo:      outboxrepo,
+		db:              db,
 	}
 }
 
@@ -120,99 +128,143 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 }
 
-func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
+func (s *Service) signupDataBuilder(email, username, password, clientID string) (
+	*models.User,
+	*models.EmailVerificationToken,
+	*models.RefreshToken,
+	*models.OutboxEvent,
+	*UserInfo,
+	string,
+	error,
+) {
+	now := time.Now()
 
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, "", err
 	}
 
-	now := time.Now()
-	user_id, err := uuid.NewV7()
+	userID, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, "", err
 	}
-
 	user := &models.User{
-		ID:           user_id,
+		ID:           userID,
 		Email:        email,
 		PasswordHash: &hash,
 		IsActive:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.users.Create(ctx, user); err != nil {
-		return nil, err
-	}
 
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
-
-	verificationtokenID, err := uuid.NewV7()
+	verificationTokenID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
 	token := &models.EmailVerificationToken{
-		ID:        verificationtokenID,
+		ID:        verificationTokenID,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}
 
-	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
-		return nil, err
+	plaintoken, refreshModel, err := generateRefreshToken(user.ID, clientID, s.tokenSecret)
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
 	}
 
-	//var SignupResponseTokens SignupResponseTokens
-	//var SignupResponseUserInfo SignupResponseUserInfo
-
-	UserInfo := SignupResponseUserInfo{
-		UserID:    user_id,
+	userInfo := UserInfo{
+		UserID:    user.ID,
 		Email:     email,
 		Username:  username,
 		Verified:  false,
 		CreatedAt: now,
 	}
-
-	atoken, err := GenerateAccessToken(user_id, email, s.privateKey)
+	outboxPayload, err := json.Marshal(userInfo)
 	if err != nil {
-		log.Println("Panic: Failed to created Access token for user: ", user_id)
+		return nil, nil, nil, nil, nil, "", err
 	}
 
-	clientID := generateClientID()
-	rtoken, refreshModel, err := generateRefreshToken(user_id, clientID, s.tokenSecret)
-	if err := s.refreshRepo.Create(ctx, refreshModel); err != nil {
-		log.Println("Panic: Failed to created refresh token for user: ", user_id)
-		return nil, err
-	}
-
-	tokens := SignupResponseTokens{
-		AccessToken:  atoken,
-		RefreshToken: rtoken,
-		TokenType:    "bearer",
-	}
-
-	signupresponse := SignupResponseRefactor{
-		UserToken: tokens,
-		UserInfo:  UserInfo,
-	}
-
-	outbox_payload, err := json.Marshal(UserInfo)
-
-	outbox_eventID, err := uuid.NewV7()
+	outboxEventID, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, "", err
 	}
-
-	outbox_event := &models.OutboxEvent{
-		ID:          outbox_eventID,
+	outboxEvent := &models.OutboxEvent{
+		ID:          outboxEventID,
 		EventType:   models.UserCreated,
-		Payload:     outbox_payload,
-		Headers:     nil,
+		Payload:     outboxPayload,
 		Status:      models.StatusPending,
-		NextRetryAt: time.Now(),
+		NextRetryAt: now,
 		CreatedAt:   now,
 	}
 
-	return &signupresponse, nil
+	return user, token, refreshModel, outboxEvent, &userInfo, plaintoken, nil
+}
+
+func (s *Service) signIpTransaction(
+	ctx context.Context,
+	user *models.User,
+	token *models.EmailVerificationToken,
+	refresh *models.RefreshToken,
+	outbox *models.OutboxEvent,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.users.CreateTx(ctx, tx, user); err != nil {
+		return err
+	}
+	if err := s.emailVerifyrepo.CreateTx(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := s.refreshRepo.CreateTx(ctx, tx, refresh); err != nil {
+		return err
+	}
+	if err := s.outboxrepo.CreateTx(ctx, tx, outbox); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, refreshToken string) (*SignupResponseRefactor, error) {
+	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SignupResponseRefactor{
+		UserToken: SignupResponseTokens{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			TokenType:    "bearer",
+		},
+		UserInfo: userinfo,
+	}, nil
+}
+
+func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
+
+	clientID := generateClientID()
+	user, emailVerifyToken, refreshToken, outboxEvent, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
+	if err != nil {
+		log.Println("Failure in Singin UP user: ", err)
+		return nil, err
+	}
+
+	err2 := s.signIpTransaction(ctx, user, emailVerifyToken, refreshToken, outboxEvent)
+	if err2 != nil {
+		log.Println("Failure in Singin UP user: ", err2)
+		return nil, err2
+	}
+
+	return s.signupResponseBuilder(user, *response_userinfo, plaintoken)
 
 }
 
