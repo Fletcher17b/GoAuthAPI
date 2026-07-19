@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type refreshRepo struct {
@@ -50,7 +52,7 @@ func (r *refreshRepo) FindValidByHash(ctx context.Context, hash string) (*models
 	return &t, nil
 }
 
-func (r *refreshRepo) Revoke(ctx context.Context, tokenID string) error {
+func (r *refreshRepo) Revoke(ctx context.Context, tokenID uuid.UUID) error {
 	now := time.Now()
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_tokens
@@ -61,7 +63,7 @@ func (r *refreshRepo) Revoke(ctx context.Context, tokenID string) error {
 	return err
 }
 
-func (r *refreshRepo) RevokeAllForUser(ctx context.Context, userID string) error {
+func (r *refreshRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = CURRENT_TIMESTAMP

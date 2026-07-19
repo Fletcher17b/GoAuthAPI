@@ -6,6 +6,8 @@ import (
 	"errors"
 
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type postgresRepo struct {
@@ -53,7 +55,7 @@ func (r *postgresRepo) FindByEmail(ctx context.Context, email string) (*models.U
 	return &u, nil
 }
 
-func (r *postgresRepo) FindByID(ctx context.Context, id string) (*models.User, error) {
+func (r *postgresRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT user_id, email, username, password_hash,
 		       email_verified, is_active, created_at, updated_at
@@ -74,7 +76,7 @@ func (r *postgresRepo) FindByID(ctx context.Context, id string) (*models.User, e
 	return &u, nil
 }
 
-func (r *postgresRepo) ActivateUser(ctx context.Context, userID string) error {
+func (r *postgresRepo) ActivateUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`UPDATE users

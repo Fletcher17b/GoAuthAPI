@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 /*
@@ -57,11 +58,13 @@ type SignupRequest struct {
 	Password string `json:"password"`
 }
 
+//////////////////////////////////
+
 type UserSignupMetada struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Status   string `json:"status"`
+	UserID   uuid.UUID `json:"user_id"`
+	Email    string    `json:"email"`
+	Username string    `json:"username"`
+	Status   string    `json:"status"`
 }
 
 type SignupResponse struct {
@@ -69,6 +72,33 @@ type SignupResponse struct {
 	RefreshToken string           `json:"refresh_token"`
 	UserMetadata UserSignupMetada `json:"user_metadata"`
 }
+
+//////////////////////////////////
+
+type SignupResponseTokens struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	/*
+		ExpiresIn        int64 `json:"expires_in"`
+		RefreshExpiresIn int64 `json:"refresh_expires_in"`
+	*/
+}
+
+type SignupResponseUserInfo struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Email     string    `json:"email"`
+	Username  string    `json:"username"`
+	Verified  bool      `json:"verified"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type SignupResponseRefactor struct {
+	UserToken SignupResponseTokens   `json:"tokens"`
+	UserInfo  SignupResponseUserInfo `json:"user"`
+}
+
+//////////////////////////////////
 
 func ClientIP(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
@@ -267,7 +297,13 @@ func revokeAllHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		if err := s.RevokeAll(r.Context(), userID); err != nil {
+		parseID, err := uuid.Parse(userID)
+		if err != nil {
+			http.Error(w, "Invalid ID", http.StatusInternalServerError)
+			return
+		}
+
+		if err := s.RevokeAll(r.Context(), parseID); err != nil {
 			http.Error(w, "failed to revoke tokens", http.StatusInternalServerError)
 			return
 		}
@@ -296,7 +332,7 @@ func RegisterRoutes(
 	/* service := NewService(repo, refreshRepo, emailRepo, mailerconfig, privateKey, tokenSecret)
 	 */
 
-	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret)
+	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo)
 
 	r.Post("/register", registerHandler(service))
 	r.Post("/login", loginHandler(service))

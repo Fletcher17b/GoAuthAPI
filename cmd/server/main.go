@@ -9,22 +9,18 @@ import (
 	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
+	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// ripeo la shit question
-func ripeo_lashit(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func main() {
 
 	priv, pub, err := config.LoadKeys()
-	ripeo_lashit(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,6 +49,7 @@ func main() {
 		PrivateKey:  priv,
 		PublicKey:   pub,
 		TokenSecret: tokenSecret,
+		OutboxRepo:  outbox.NewOutboxRepoAuxiliary(cfg.Database.Driver, database),
 	}
 
 	r := config.InitRouter(cfg, func(r chi.Router) {

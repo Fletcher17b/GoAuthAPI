@@ -68,17 +68,27 @@ CREATE TABLE IF NOT EXISTS user_roles (
         ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS outbox_events (
+CREATE TABLE outbox_events (
     id UUID PRIMARY KEY,
+
     aggregate_type VARCHAR(100) NOT NULL,
     aggregate_id UUID NOT NULL,
+
     event_type VARCHAR(200) NOT NULL,
+
     payload JSONB NOT NULL,
     headers JSONB,
+
     status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+
     retry_count INTEGER NOT NULL DEFAULT 0,
+
+    next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
     created_at TIMESTAMPTZ NOT NULL,
+
     published_at TIMESTAMPTZ,
+
     last_error TEXT
 );
 
@@ -100,5 +110,5 @@ ON password_reset_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_provider_user
 ON oauth_identities(provider, provider_user_id);
 
-CREATE INDEX IF NOT EXISTS idx_outbox_pending
-ON outbox_events (status, created_at);
+CREATE INDEX idx_outbox_pending
+ON outbox_events(status, next_retry_at);

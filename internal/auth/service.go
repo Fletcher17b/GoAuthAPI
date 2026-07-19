@@ -3,8 +3,10 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 	auth "AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
+	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 )
 
@@ -36,6 +39,8 @@ type Service struct {
 	PublicKey  *rsa.PublicKey
 
 	tokenSecret string
+
+	outboxrepo outbox.OutboxRepo
 }
 
 func NewService(
@@ -47,6 +52,9 @@ func NewService(
 
 	privateKey *rsa.PrivateKey,
 	tokenSecret string,
+
+	outboxrepo outbox.OutboxRepo,
+
 ) *Service {
 	return &Service{
 		users:           users,
@@ -55,6 +63,7 @@ func NewService(
 		mailer:          mailer,
 		privateKey:      privateKey,
 		tokenSecret:     tokenSecret,
+		outboxrepo:      outboxrepo,
 	}
 }
 
@@ -73,8 +82,9 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 	now := time.Now()
 
+	userid, err := uuid.NewV7()
 	user := &models.User{
-		ID:           uuid.NewString(),
+		ID:           userid,
 		Email:        email,
 		PasswordHash: &hash,
 		IsActive:     false,
@@ -89,8 +99,9 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
+	tokenid, err := uuid.NewV7()
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        tokenid,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(24 * time.Hour),
@@ -109,7 +120,7 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 }
 
-func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponse, error) {
+func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
 
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
@@ -117,7 +128,10 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 	}
 
 	now := time.Now()
-	user_id := uuid.NewString()
+	user_id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
 
 	user := &models.User{
 		ID:           user_id,
@@ -127,7 +141,6 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-
 	if err := s.users.Create(ctx, user); err != nil {
 		return nil, err
 	}
@@ -135,8 +148,9 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
+	verificationtokenID, err := uuid.NewV7()
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        verificationtokenID,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(24 * time.Hour),
@@ -147,17 +161,59 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 		return nil, err
 	}
 
-	go s.mailer.SendVerificationEmail(user.Email, rawToken)
+	//var SignupResponseTokens SignupResponseTokens
+	//var SignupResponseUserInfo SignupResponseUserInfo
 
-	var response SignupResponse
+	UserInfo := SignupResponseUserInfo{
+		UserID:    user_id,
+		Email:     email,
+		Username:  username,
+		Verified:  false,
+		CreatedAt: now,
+	}
 
-	response.UserMetadata.Status = "provisioning"
+	atoken, err := GenerateAccessToken(user_id, email, s.privateKey)
+	if err != nil {
+		log.Println("Panic: Failed to created Access token for user: ", user_id)
+	}
 
-	response.UserMetadata.Email = email
-	response.UserMetadata.UserID = user_id
-	response.UserMetadata.Username = username
+	clientID := generateClientID()
+	rtoken, refreshModel, err := generateRefreshToken(user_id, clientID, s.tokenSecret)
+	if err := s.refreshRepo.Create(ctx, refreshModel); err != nil {
+		log.Println("Panic: Failed to created refresh token for user: ", user_id)
+		return nil, err
+	}
 
-	return &response, nil
+	tokens := SignupResponseTokens{
+		AccessToken:  atoken,
+		RefreshToken: rtoken,
+		TokenType:    "bearer",
+	}
+
+	signupresponse := SignupResponseRefactor{
+		UserToken: tokens,
+		UserInfo:  UserInfo,
+	}
+
+	outbox_payload, err := json.Marshal(UserInfo)
+
+	outbox_eventID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+
+	outbox_event := &models.OutboxEvent{
+		ID:          outbox_eventID,
+		EventType:   models.UserCreated,
+		Payload:     outbox_payload,
+		Headers:     nil,
+		Status:      models.StatusPending,
+		NextRetryAt: time.Now(),
+		CreatedAt:   now,
+	}
+
+	return &signupresponse, nil
+
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
@@ -200,8 +256,10 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
+	tokenid, err := uuid.NewV7()
+
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        tokenid,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
@@ -315,6 +373,6 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 	return s.refreshRepo.Revoke(ctx, rt.ID)
 }
 
-func (s *Service) RevokeAll(ctx context.Context, userID string) error {
+func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
 	return s.refreshRepo.RevokeAllForUser(ctx, userID)
 }

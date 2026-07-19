@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,8 +14,8 @@ import (
 )
 
 type Claims struct {
-	UserID string `json:"userid"`
-	Email  string `json:"email"`
+	UserID uuid.UUID `json:"userid"`
+	Email  string    `json:"email"`
 	jwt.RegisteredClaims
 }
 
@@ -23,7 +24,8 @@ type Claims struct {
 */
 
 func GenerateAccessToken(
-	userID, email string,
+	userID uuid.UUID,
+	email string,
 	privateKey *rsa.PrivateKey,
 ) (string, error) {
 
@@ -31,7 +33,7 @@ func GenerateAccessToken(
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
+			Subject:   userID.String(),
 			Issuer:    "auth-service",
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
@@ -46,7 +48,7 @@ func generateClientID() string {
 	return uuid.NewString()
 }
 
-func generateRefreshToken(userID, clientID, secret string) (string, *models.RefreshToken, error) {
+func generateRefreshToken(userID uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -57,12 +59,15 @@ func generateRefreshToken(userID, clientID, secret string) (string, *models.Refr
 
 	now := time.Now()
 
+	rtid, err := uuid.NewV7()
+	if err != nil {
+		log.Println("Something fucked up in generating refresh token ID jwt file")
+	}
 	rt := &models.RefreshToken{
-		ID:        uuid.NewString(),
+		ID:        rtid,
 		UserID:    userID,
 		ClientID:  clientID,
 		TokenHash: hash,
-		/* IPAddress: ip, */
 		ExpiresAt: now.Add(30 * 24 * time.Hour),
 		CreatedAt: now,
 	}
@@ -94,7 +99,7 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 	return claims, nil
 }
 
-func generateEmailVerificationToken(userID, secret string) (string, *models.EmailVerificationToken, error) {
+func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)
 	rand.Read(raw)
 
@@ -103,8 +108,13 @@ func generateEmailVerificationToken(userID, secret string) (string, *models.Emai
 
 	now := time.Now()
 
+	id, err := uuid.NewV7()
+	if err != nil {
+		log.Println("Shit hit the fan in EmailVerification Token in JWT")
+	}
+
 	return plain, &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        id,
 		UserID:    userID,
 		TokenHash: hash,
 		ExpiresAt: now.Add(24 * time.Hour),

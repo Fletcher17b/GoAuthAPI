@@ -3,6 +3,7 @@ package config
 import (
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 	"crypto/rsa"
 )
@@ -50,4 +51,5 @@ type App struct {
 	PrivateKey  *rsa.PrivateKey
 	PublicKey   *rsa.PublicKey
 	TokenSecret string
+	OutboxRepo  outbox.OutboxRepo
 }

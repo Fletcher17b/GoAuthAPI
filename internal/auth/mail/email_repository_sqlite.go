@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type EmailVerificationSQLiteRepo struct {
@@ -61,7 +63,7 @@ func (r *EmailVerificationSQLiteRepo) FindValidByHash(ctx context.Context, hash 
 	return &t, nil
 }
 
-func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID string, usedAt time.Time) error {
+func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID uuid.UUID, usedAt time.Time) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`UPDATE email_verification_tokens
@@ -73,7 +75,7 @@ func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID stri
 	return err
 }
 
-func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, userID string) error {
+func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens WHERE user_id = ?`,
@@ -82,10 +84,7 @@ func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, user
 	return err
 }
 
-func (r *EmailVerificationSQLiteRepo) DeleteByUserID(
-	ctx context.Context,
-	userID string,
-) error {
+func (r *EmailVerificationSQLiteRepo) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens WHERE user_id = ?`,

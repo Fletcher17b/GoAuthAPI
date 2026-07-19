@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type refreshPostgresRepo struct {
@@ -50,7 +52,7 @@ func (r *refreshPostgresRepo) FindValidByHash(ctx context.Context, hash string) 
 	return &t, nil
 }
 
-func (r *refreshPostgresRepo) Revoke(ctx context.Context, tokenID string) error {
+func (r *refreshPostgresRepo) Revoke(ctx context.Context, tokenID uuid.UUID) error {
 	now := time.Now()
 
 	_, err := r.db.ExecContext(ctx, `
@@ -63,7 +65,7 @@ func (r *refreshPostgresRepo) Revoke(ctx context.Context, tokenID string) error 
 	return err
 }
 
-func (r *refreshPostgresRepo) RevokeAllForUser(ctx context.Context, userID string) error {
+func (r *refreshPostgresRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = CURRENT_TIMESTAMP

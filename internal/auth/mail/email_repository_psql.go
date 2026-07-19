@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type EmailVerificationPostgresRepo struct {
@@ -61,7 +63,7 @@ func (r *EmailVerificationPostgresRepo) FindValidByHash(ctx context.Context, has
 	return &t, nil
 }
 
-func (r *EmailVerificationPostgresRepo) MarkUsed(ctx context.Context, tokenID string, usedAt time.Time) error {
+func (r *EmailVerificationPostgresRepo) MarkUsed(ctx context.Context, tokenID uuid.UUID, usedAt time.Time) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`UPDATE email_verification_tokens
@@ -73,7 +75,7 @@ func (r *EmailVerificationPostgresRepo) MarkUsed(ctx context.Context, tokenID st
 	return err
 }
 
-func (r *EmailVerificationPostgresRepo) DeleteAllForUser(ctx context.Context, userID string) error {
+func (r *EmailVerificationPostgresRepo) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens
@@ -83,7 +85,7 @@ func (r *EmailVerificationPostgresRepo) DeleteAllForUser(ctx context.Context, us
 	return err
 }
 
-func (r *EmailVerificationPostgresRepo) DeleteByUserID(ctx context.Context, userID string) error {
+func (r *EmailVerificationPostgresRepo) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens
