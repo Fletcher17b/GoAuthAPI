@@ -7,12 +7,13 @@ import (
 )
 
 type RefreshToken struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	ClientID  string
-	TokenHash string
-	/* IPAddress string */
-	ExpiresAt time.Time
-	RevokedAt *time.Time
-	CreatedAt time.Time
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	TokenHash   string
+	ClientID    string
+	ParentToken uuid.UUID
+	FamilyID    uuid.UUID
+	ExpiresAt   time.Time
+	RevokedAt   *time.Time
+	CreatedAt   time.Time
 }

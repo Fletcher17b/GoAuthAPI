@@ -59,6 +59,10 @@ type SignupRequest struct {
 	Password string `json:"password"`
 }
 
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 //////////////////////////////////
 
 type UserSignupMetada struct {
@@ -100,6 +104,17 @@ type SignupResponseRefactor struct {
 }
 
 //////////////////////////////////
+
+func writeJSON(
+	w http.ResponseWriter,
+	status int,
+	body any,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	_ = json.NewEncoder(w).Encode(body)
+}
 
 func ClientIP(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
@@ -143,8 +158,13 @@ func signupHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SignupRequest
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid payload", http.StatusBadRequest)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid request body",
+			})
 			return
 		}
 
@@ -155,13 +175,13 @@ func signupHandler(s *Service) http.HandlerFunc {
 			req.Password,
 		)
 		if err != nil {
-			http.Error(w, "registration failed", http.StatusConflict)
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+				Error: "internal server error",
+			})
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(resp)
+		writeJSON(w, http.StatusCreated, resp)
 	}
 }
 
@@ -212,7 +232,6 @@ func loginHandler(s *Service) http.HandlerFunc {
 			Password string `json:"password"`
 		}
 
-		/* ip := ClientIP(r) */
 		println("ping login")
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -325,14 +344,17 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
+func healthhander(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+	}
+}
+
 func RegisterRoutes(
 	app app.App,
 	r chi.Router,
 	db *sql.DB,
 ) {
-
-	/* service := NewService(repo, refreshRepo, emailRepo, mailerconfig, privateKey, tokenSecret)
-	 */
 
 	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo, db)
 
@@ -342,7 +364,8 @@ func RegisterRoutes(
 	r.Post("/logout", logoutHandler(service))
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
-	// r.Post("/signup", signupHandler(service)) inactive for now
+	r.Post("/signup", signupHandler(service))
+	r.Get("/health", healthhander(service))
 	/* Todo:
 	- change URLs to standard
 	- remeber wtf does this mean???

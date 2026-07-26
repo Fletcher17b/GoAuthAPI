@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
+    user_id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     username TEXT UNIQUE,
     password_hash TEXT,
@@ -10,10 +10,12 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-    token_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    token_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     token_hash TEXT NOT NULL,
     client_id TEXT NOT NULL,
+    family_id UUID  NOT NULL,
+    ptoken_id UUID,
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
@@ -23,8 +25,8 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
-    token_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    token_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
@@ -35,8 +37,8 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    token_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    token_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
@@ -47,8 +49,8 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS oauth_identities (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     provider TEXT NOT NULL,
     provider_user_id TEXT NOT NULL,
     email_at_provider TEXT NOT NULL,
@@ -60,7 +62,7 @@ CREATE TABLE IF NOT EXISTS oauth_identities (
 );
 
 CREATE TABLE IF NOT EXISTS user_roles (
-    user_id TEXT NOT NULL,
+    user_id UUID NOT NULL,
     role TEXT NOT NULL,
     PRIMARY KEY (user_id, role),
     FOREIGN KEY (user_id)
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
         ON DELETE CASCADE
 );
 
-CREATE TABLE outbox_events (
+CREATE TABLE IF NOT EXISTS outbox_events (
     id UUID PRIMARY KEY,
 
     aggregate_type VARCHAR(100) NOT NULL,
@@ -101,6 +103,9 @@ ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
 ON refresh_tokens(token_hash);
 
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
+ON refresh_tokens(family_id);
+
 CREATE INDEX IF NOT EXISTS idx_email_verification_hash
 ON email_verification_tokens(token_hash);
 
@@ -110,5 +115,5 @@ ON password_reset_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_provider_user
 ON oauth_identities(provider, provider_user_id);
 
-CREATE INDEX idx_outbox_pending
+CREATE INDEX IF NOT EXISTS idx_outbox_pending
 ON outbox_events(status, next_retry_at);

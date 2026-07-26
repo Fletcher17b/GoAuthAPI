@@ -8,6 +8,7 @@ type Config struct {
 	CORS_ALLOWED_ORIGINS []string
 
 	Database DatabaseConfig
+	Broker   BrokerConfig
 }
 
 type SQLiteConfig struct {
@@ -27,4 +28,9 @@ type DatabaseConfig struct {
 	Driver       string
 	SqliteConf   SQLiteConfig
 	PostgresConf PostgresConfig
+}
+
+type BrokerConfig struct {
+	URL      string
+	Exchange string
 }

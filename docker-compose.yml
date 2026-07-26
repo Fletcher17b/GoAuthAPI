@@ -42,6 +42,7 @@ services:
       - ./creds:/app/creds:ro
     depends_on:
       - db
+      - rabbitmq
     logging:
       driver: json-file
       options:
@@ -52,6 +53,16 @@ services:
     secrets:
       - authapi_private_key
       - authapi_public_key
+  rabbitmq:
+      build:
+        context: .
+        dockerfile: Dockerfile.RabbitMQ
+      ports:
+        - "5672:5672"
+        - "15672:15672"
+        - "15692:15692"
+      networks:
+      - backend
 
 secrets:
   authapi_private_key:

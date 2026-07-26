@@ -48,7 +48,8 @@ func generateClientID() string {
 	return uuid.NewString()
 }
 
-func generateRefreshToken(userID uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
+// nts TODO: document this shit, familyID is the session identifier, clientID is kinda useless rn but half the shit usses it
+func generateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -63,13 +64,16 @@ func generateRefreshToken(userID uuid.UUID, clientID, secret string) (string, *m
 	if err != nil {
 		log.Println("Something fucked up in generating refresh token ID jwt file")
 	}
+
 	rt := &models.RefreshToken{
-		ID:        rtid,
-		UserID:    userID,
-		ClientID:  clientID,
-		TokenHash: hash,
-		ExpiresAt: now.Add(30 * 24 * time.Hour),
-		CreatedAt: now,
+		ID:          rtid,
+		UserID:      userID,
+		ClientID:    clientID,
+		TokenHash:   hash,
+		FamilyID:    familyID,
+		ParentToken: parentToken,
+		ExpiresAt:   now.Add(30 * 24 * time.Hour),
+		CreatedAt:   now,
 	}
 
 	return plain, rt, nil

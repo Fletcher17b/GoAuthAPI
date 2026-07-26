@@ -29,7 +29,6 @@ type envField struct {
 } */
 
 func getEnv(key string) (string, error) {
-	// 1. Normal environment variable
 	if value := os.Getenv(key); value != "" {
 		return value, nil
 	}
@@ -38,7 +37,6 @@ func getEnv(key string) (string, error) {
 }
 
 func getFilePath(envKey string, secretName string, defaultPath string) string {
-	// 1. Explicit path wins.
 	if path := os.Getenv(envKey); path != "" {
 		return path
 	}
@@ -80,7 +78,26 @@ func Load() (*Config, error) {
 		CORS_ALLOWED_ORIGINS: parseEnvList(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		SMTP:                 *mailconfig,
 		Database:             db_config,
+		Broker:               LoadBrokerConfig(),
 	}, nil
+}
+
+func LoadBrokerConfig() BrokerConfig {
+	url := os.Getenv("RABBITMQ_URL")
+	if url == "" {
+		log.Println("No RABBITMQ_URL configured, defaulting to amqp://guest:guest@localhost:5672/")
+		url = "amqp://guest:guest@localhost:5672/"
+	}
+
+	exchange := os.Getenv("RABBITMQ_EXCHANGE")
+	if exchange == "" {
+		exchange = "authapi.events"
+	}
+
+	return BrokerConfig{
+		URL:      url,
+		Exchange: exchange,
+	}
 }
 
 func LoadKeys() (*rsa.PrivateKey, *rsa.PublicKey, error) {
