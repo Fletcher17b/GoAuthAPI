@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"log"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -57,7 +56,6 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	}
 
 	if !ok {
-		log.Println("Creating sqlite database...")
 		if err := SqliteMigration(db, "migrations/sqlite/001_init.sql"); err != nil {
 			db.Close()
 			return nil, err

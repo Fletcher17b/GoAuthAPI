@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
-	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -62,7 +61,7 @@ func generateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, sec
 
 	rtid, err := uuid.NewV7()
 	if err != nil {
-		log.Println("Something fucked up in generating refresh token ID jwt file")
+		return "", nil, err
 	}
 
 	rt := &models.RefreshToken{
@@ -114,7 +113,7 @@ func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *m
 
 	id, err := uuid.NewV7()
 	if err != nil {
-		log.Println("Shit hit the fan in EmailVerification Token in JWT")
+		return "", nil, err
 	}
 
 	return plain, &models.EmailVerificationToken{

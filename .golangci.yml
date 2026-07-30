@@ -1,0 +1,29 @@
+run:
+  tests: true
+  timeout: 5m
+
+issues:
+  exclude-use-default: false
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - staticcheck
+    - govet
+    - gofmt
+    - gosimple
+    - unused
+    - deadcode
+    - structcheck
+    - varcheck
+    - ineffassign
+    - gosec
+
+linters-settings:
+  gofmt:
+    simplify: true
+  gosec:
+    severity: low
+    exclude:
+      - G104

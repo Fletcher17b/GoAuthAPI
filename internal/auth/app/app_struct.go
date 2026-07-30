@@ -6,6 +6,7 @@ import (
 	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 	"crypto/rsa"
+	"log/slog"
 )
 
 type App struct {
@@ -17,4 +18,5 @@ type App struct {
 	PublicKey   *rsa.PublicKey
 	TokenSecret string
 	OutboxRepo  outbox.OutboxRepo
+	Logger      *slog.Logger
 }

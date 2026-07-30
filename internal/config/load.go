@@ -20,14 +20,6 @@ type envField struct {
 	target *string
 }
 
-/* func getEnv(key string) (string, error) {
-	value := os.Getenv(key)
-	if value == "" {
-		return "", fmt.Errorf("Missing environment variable %q", key)
-	}
-	return value, nil
-} */
-
 func getEnv(key string) (string, error) {
 	if value := os.Getenv(key); value != "" {
 		return value, nil
@@ -41,19 +33,27 @@ func getFilePath(envKey string, secretName string, defaultPath string) string {
 		return path
 	}
 
-	// 2. Docker secrets (Compose + Swarm compatible).
 	secretPath := "/run/secrets/" + secretName
 	if _, err := os.Stat(secretPath); err == nil {
 		return secretPath
 	}
 
-	// 3. Local development.
 	return defaultPath
 }
 
 func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
+	}
+
+	env, err := getEnv("APP_ENV")
+	if err != nil {
+		return nil, err
+	}
+
+	log_level, err := getEnv("LOG_LEVEL")
+	if err != nil {
+		return nil, err
 	}
 
 	port, err := strconv.Atoi(os.Getenv("SMTP_PORT"))
@@ -79,6 +79,8 @@ func Load() (*Config, error) {
 		SMTP:                 *mailconfig,
 		Database:             db_config,
 		Broker:               LoadBrokerConfig(),
+		Environment:          env,
+		LogLevel:             log_level,
 	}, nil
 }
 

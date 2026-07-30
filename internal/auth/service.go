@@ -5,9 +5,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -106,7 +104,7 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
-		return err
+		return wrapUserCreateError(err)
 	}
 
 	rawToken := uuid.NewString()
@@ -229,7 +227,7 @@ func (s *Service) signIpTransaction(
 	defer tx.Rollback()
 
 	if err := s.users.CreateTx(ctx, tx, user); err != nil {
-		return err
+		return wrapUserCreateError(err)
 	}
 	if err := s.emailVerifyrepo.CreateTx(ctx, tx, token); err != nil {
 		return err
@@ -242,6 +240,25 @@ func (s *Service) signIpTransaction(
 	}
 
 	return tx.Commit()
+}
+
+func wrapUserCreateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isUniqueConstraintError(err) {
+		return ErrEmailAlreadyExists
+	}
+	return err
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
 }
 
 func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, refreshToken string) (*SignupResponseRefactor, error) {
@@ -265,13 +282,12 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 	clientID := generateClientID()
 	user, emailVerifyToken, refreshToken, outboxEvent, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
 	if err != nil {
-		log.Println("Failure in Singin UP user: ", err)
+		/* nts */
 		return nil, err
 	}
 
 	err2 := s.signIpTransaction(ctx, user, emailVerifyToken, refreshToken, outboxEvent)
 	if err2 != nil {
-		log.Println("Failure in Singin UP user: ", err2)
 		return nil, err2
 	}
 
@@ -284,11 +300,11 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 
 	token, err := s.emailVerifyrepo.FindValidByHash(ctx, tokenHash)
 	if err != nil {
-		return errors.New("invalid or expired token")
+		return ErrInvalidVerificationToken
 	}
 
 	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
-		return errors.New("token invalid")
+		return ErrInvalidVerificationToken
 	}
 
 	now := time.Now()
@@ -296,8 +312,6 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 	if err := s.emailVerifyrepo.MarkUsed(ctx, token.ID, now); err != nil {
 		return err
 	}
-
-	// 	_ = s.emailVerifyrepo.DeleteByUserID(ctx, token.UserID)
 
 	return s.users.ActivateUser(ctx, token.UserID)
 }
@@ -339,11 +353,11 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 func (s *Service) Login(ctx context.Context, email, password string) (string, string, string, error) {
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil || user == nil || user.PasswordHash == nil {
-		return "", "", "", fmt.Errorf("login failed: %w", ErrInvalidCredentials)
+		return "", "", "", ErrInvalidCredentials
 	}
 
 	if err := crypto.ComparePassword(*user.PasswordHash, password); err != nil {
-		return "", "", "", fmt.Errorf("login failed: %w", ErrInvalidCredentials)
+		return "", "", "", ErrInvalidCredentials
 	}
 	/*
 		if !user.IsActive {
@@ -353,7 +367,6 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 
 	access, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
 	if err != nil {
-		println("error point: ")
 		return "", "", "", err
 	}
 
@@ -366,12 +379,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
 	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
 	if err != nil {
-		println("error point 2")
 		return "", "", "", err
 	}
 
 	if err := s.refreshRepo.Create(ctx, refreshModel); err != nil {
-		println("error point 3")
 		return "", "", "", err
 	}
 

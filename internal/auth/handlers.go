@@ -4,7 +4,7 @@ import (
 	"AuthAPI/main/internal/auth/app"
 	"database/sql"
 	"encoding/json"
-	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -143,8 +143,7 @@ func registerHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.Register(r.Context(), req.Email, req.Password); err != nil {
-			/* http.Error(w, err.Error(), http.StatusConflict) */
-			http.Error(w, "registration failed", http.StatusConflict)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -168,6 +167,20 @@ func signupHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+
+		if err := validatePassword(req.Password); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+
 		resp, err := s.SignupService(
 			r.Context(),
 			req.Email,
@@ -175,9 +188,7 @@ func signupHandler(s *Service) http.HandlerFunc {
 			req.Password,
 		)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-				Error: "internal server error",
-			})
+			respondJSONError(w, err)
 			return
 		}
 
@@ -194,7 +205,7 @@ func verifyEmailHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.VerifyEmail(r.Context(), rawToken); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			respondTextError(w, err)
 			return
 		}
 
@@ -217,7 +228,7 @@ func resendVerificationHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.ResendVerification(r.Context(), req.Email); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			respondTextError(w, err)
 			return
 		}
 
@@ -232,23 +243,31 @@ func loginHandler(s *Service) http.HandlerFunc {
 			Password string `json:"password"`
 		}
 
-		println("ping login")
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decoder.Decode(&req); err != nil {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+
+		if err := validatePassword(req.Password); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
 			return
 		}
 
 		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password)
 		if err != nil {
-			switch {
-			case errors.Is(err, ErrEmailNotVerified):
-				http.Error(w, err.Error(), http.StatusForbidden)
-			case errors.Is(err, ErrInvalidCredentials):
-				http.Error(w, err.Error(), http.StatusUnauthorized)
-			default:
-				http.Error(w, err.Error(), http.StatusBadRequest)
-			}
+			respondJSONError(w, err)
 			return
 		}
 
@@ -279,7 +298,7 @@ func refreshHandler(s *Service) http.HandlerFunc {
 
 		accessToken, refreshToken, expiresAt, err := s.Refresh(r.Context(), req.RefreshToken)
 		if err != nil {
-			http.Error(w, "invalid refresh token", http.StatusUnauthorized)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -300,7 +319,7 @@ func logoutHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.Logout(r.Context(), req.RefreshToken); err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -324,7 +343,7 @@ func revokeAllHandler(s *Service) http.HandlerFunc {
 		}
 
 		if err := s.RevokeAll(r.Context(), parseID); err != nil {
-			http.Error(w, "failed to revoke tokens", http.StatusInternalServerError)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -344,8 +363,32 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
-func healthhander(s *Service) http.HandlerFunc {
+func healthhander(s *Service, logger *slog.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		if err := db.PingContext(r.Context()); err != nil {
+
+			logger.Error(
+				"",
+				"Health Check Failed",
+				err.Error(),
+			)
+
+			w.WriteHeader(http.StatusServiceUnavailable)
+
+			json.NewEncoder(w).Encode(map[string]string{
+				"status": "error",
+			})
+
+			return
+		}
+
+		logger.Debug("Alles gut with health Check")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "ok",
+		})
+
+		// nts TODO: link the rest of the services when implemented
 
 	}
 }
@@ -365,7 +408,7 @@ func RegisterRoutes(
 	r.Get("/verify-email", verifyEmailHandler(service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
 	r.Post("/signup", signupHandler(service))
-	r.Get("/health", healthhander(service))
+	r.Get("/health", healthhander(service, app.Logger, db))
 	/* Todo:
 	- change URLs to standard
 	- remeber wtf does this mean???

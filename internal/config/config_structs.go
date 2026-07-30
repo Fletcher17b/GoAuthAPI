@@ -7,8 +7,10 @@ type Config struct {
 	SMTP                 mail.SMTPMailer
 	CORS_ALLOWED_ORIGINS []string
 
-	Database DatabaseConfig
-	Broker   BrokerConfig
+	Database    DatabaseConfig
+	Broker      BrokerConfig
+	Environment string
+	LogLevel    string
 }
 
 type SQLiteConfig struct {

@@ -10,6 +10,7 @@ import (
 
 	"AuthAPI/main/internal/auth"
 	"AuthAPI/main/internal/auth/app"
+	"AuthAPI/main/internal/auth/logger"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/config"
@@ -22,12 +23,15 @@ import (
 
 func main() {
 
-	priv, pub, err := config.LoadKeys()
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to log config: %v ", err)
 	}
 
-	cfg, err := config.Load()
+	logger := logger.New(cfg.Environment, cfg.LogLevel)
+	logger.Info("config loaded", "env", cfg.Environment, "db_driver", cfg.Database.Driver)
+
+	priv, pub, err := config.LoadKeys()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,6 +57,7 @@ func main() {
 		PublicKey:   pub,
 		TokenSecret: tokenSecret,
 		OutboxRepo:  outbox.NewOutboxRepoAuxiliary(cfg.Database.Driver, database),
+		Logger:      logger,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -75,21 +80,26 @@ func main() {
 	r := config.InitRouter(cfg, func(r chi.Router) {
 		auth.RegisterRoutes(*app, r, database)
 	})
+
 	srv := &http.Server{Addr: ":8081", Handler: r}
 
 	go func() {
-		log.Println("Auth service running on :8081")
+		logger.Debug("Auth service running on :8081")
+		r.Use(auth.LoggingMiddleware(logger))
+		r.Use(auth.JWTMiddleware(pub))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server exited: %v", err)
+			logger.Error(err.Error())
+			panic(err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("shutting down...")
+	logger.Error("shutting down...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("error during server shutdown: %v", err)
+		error_str := "error during server shutdown: " + err.Error()
+		logger.Error(error_str)
 	}
 }
