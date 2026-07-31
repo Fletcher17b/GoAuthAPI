@@ -1,13 +1,19 @@
 package config
 
 import (
+	"AuthAPI/main/internal/auth"
+	"crypto/rsa"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func InitRouter(
 	cfg *Config,
+	pub *rsa.PublicKey,
+	logger *slog.Logger,
 	registerBusinessRoutes func(r chi.Router),
 ) *chi.Mux {
 
@@ -21,6 +27,9 @@ func InitRouter(
 
 	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)
+	r.Use(auth.LoggingMiddleware(logger))
+	r.Use(auth.JWTMiddleware(pub))
+	r.Handle("/metrics", promhttp.Handler())
 	registerBusinessRoutes(r)
 
 	return r

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/auth/metrics"
 	auth "AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
@@ -291,6 +292,7 @@ func (s *Service) SignupService(ctx context.Context, email, username, password s
 		return nil, err2
 	}
 
+	metrics.SignupsTotal.WithLabelValues("success").Inc()
 	return s.signupResponseBuilder(user, *response_userinfo, plaintoken)
 
 }
@@ -386,6 +388,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 		return "", "", "", err
 	}
 
+	metrics.LoginAttemptsTotal.WithLabelValues("success").Inc()
 	return access, refreshPlain, clientID, nil
 }
 
@@ -438,6 +441,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		return "", nil, err
 	}
 
+	metrics.RefreshReuseDetectedTotal.Inc()
 	return plain, model, nil
 }
 

@@ -12,17 +12,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-)
 
-/*
-type UserStatus string
-
-const (
-provisioning
-active
-full
+	httpSwagger "github.com/swaggo/http-swagger"
 )
-*/
 
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
@@ -130,6 +122,17 @@ func ClientIP(r *http.Request) string {
 	return host
 }
 
+// registerHandler godoc
+// @Summary      Register a new user
+// @Description  Creates a new user account using email and password.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object{email=string,password=string} true "Registration request"
+// @Success      201
+// @Failure      400 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse
+// @Router       /register [post]
 func registerHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -151,8 +154,18 @@ func registerHandler(s *Service) http.HandlerFunc {
 	}
 }
 
-// signupHandler acts as a more complex register endpoint that works with the message broker to create a user across multiple consumer APIs
-// accepts (should) username
+// signupHandler godoc
+// @Summary      Sign up a new user
+// @Description  signupHandler acts as a more complex register endpoint that works with the message broker to create a user across multiple consumer APIs, accepts (should) username
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body SignupRequest true "Signup request"
+// @Success      201 {object} SignupResponseRefactor
+// @Failure      400 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /signup [post]
 func signupHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SignupRequest
@@ -196,6 +209,16 @@ func signupHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// verifyEmailHandler godoc
+// @Summary      Verify email address
+// @Description  Verifies a user's email using the verification token.
+// @Tags         auth
+// @Produce      json
+// @Param token query string true "Verification token"
+// @Success      200
+// @Failure      400 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Router       /verify/{token} [get]
 func verifyEmailHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rawToken := r.URL.Query().Get("t")
@@ -214,6 +237,17 @@ func verifyEmailHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// resendVerificationHandler godoc
+// @Summary      Resend verification email
+// @Description  Sends a new email verification link to the user.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body ResendVerificationRequest true "Resend verification request"
+// @Success      200
+// @Failure      400 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Router       /verify/resend [post]
 func resendVerificationHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req ResendVerificationRequest
@@ -283,6 +317,17 @@ func loginHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// refreshHandler godoc
+// @Summary      Refresh access token
+// @Description  Exchanges a valid refresh token for a new access token.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body RefreshRequest true "Refresh token"
+// @Success      200 {object} RefreshResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Router       /refresh [post]
 func refreshHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req RefreshRequest
@@ -310,6 +355,17 @@ func refreshHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// logoutHandler godoc
+// @Summary      Log out a user
+// @Description  Revokes the provided refresh token.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body LogoutRequest true "Logout request"
+// @Success      204
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Router       /logout [post]
 func logoutHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req LogoutRequest
@@ -327,6 +383,15 @@ func logoutHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// revokeAllHandler godoc
+// @Summary      Revoke all sessions
+// @Description  Revokes all active refresh tokens for the authenticated user.
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      204
+// @Failure      401 {object} ErrorResponse
+// @Router       /logout/all [post]
 func revokeAllHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
@@ -351,6 +416,15 @@ func revokeAllHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// meHandler godoc
+// @Summary      Get current user
+// @Description  Returns information about the authenticated user. Internal use
+// @Tags         users, internal
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} UserInfo
+// @Failure      401 {object} ErrorResponse
+// @Router       /me [get]
 func meHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := r.Context().Value(ContextUserID).(string)
@@ -409,6 +483,7 @@ func RegisterRoutes(
 	r.Post("/resend-verification", resendVerificationHandler(service))
 	r.Post("/signup", signupHandler(service))
 	r.Get("/health", healthhander(service, app.Logger, db))
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	/* Todo:
 	- change URLs to standard
 	- remeber wtf does this mean???

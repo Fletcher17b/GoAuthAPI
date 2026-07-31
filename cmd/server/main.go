@@ -1,3 +1,12 @@
+// @title           AuthAPI
+// @version         1.2
+// @description     REST API documentation
+// @BasePath        /
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+
 package main
 
 import (
@@ -62,31 +71,33 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	/*
-		var mqBroker broker.Broker
-		if cfg.Database.Driver == "postgres" {
-			rabbit, err := broker.NewRabbitMQ(cfg.Broker.URL, cfg.Broker.Exchange)
-			if err != nil {
-				log.Fatalf("failed to connect to rabbitmq: %v", err)
-			}
-			mqBroker = rabbit
-			defer mqBroker.Close()
 
-			processor := outbox.NewProcessor(app.OutboxRepo, mqBroker)
-			worker := outbox.NewWorker(processor, outbox.WorkerConfig{})
-			go worker.Run(ctx)
-		} */
+	/* var mqBroker broker.Broker
+	if cfg.Database.Driver == "postgres" {
+		rabbit, err := broker.NewRabbitMQ(cfg.Broker.URL, cfg.Broker.Exchange)
+		if err != nil {
+			log.Fatalf("failed to connect to rabbitmq: %v", err)
+		}
+		mqBroker = rabbit
+		defer mqBroker.Close()
 
-	r := config.InitRouter(cfg, func(r chi.Router) {
+		processor := outbox.NewProcessor(app.OutboxRepo, mqBroker)
+		worker := outbox.NewWorker(processor, outbox.WorkerConfig{})
+		go worker.Run(ctx)
+	} else if cfg.Database.Driver == "sqlite" && cfg.Environment == "production" {
+		logger.Info("Application running on production mode with sqlite, are you sure of what you're doing?")
+	} */
+
+	r := config.InitRouter(cfg, pub, logger, func(r chi.Router) {
 		auth.RegisterRoutes(*app, r, database)
+
 	})
 
 	srv := &http.Server{Addr: ":8081", Handler: r}
 
 	go func() {
 		logger.Debug("Auth service running on :8081")
-		r.Use(auth.LoggingMiddleware(logger))
-		r.Use(auth.JWTMiddleware(pub))
+
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(err.Error())
 			panic(err)
