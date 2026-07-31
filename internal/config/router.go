@@ -2,6 +2,7 @@ package config
 
 import (
 	"AuthAPI/main/internal/auth"
+	"AuthAPI/main/internal/auth/metrics"
 	"crypto/rsa"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,8 @@ func InitRouter(
 
 	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)
+	r.Use(auth.RequestIDMiddleware)
+	r.Use(metrics.MetricsMiddleware)
 	r.Use(auth.LoggingMiddleware(logger))
 	//r.Use(auth.JWTMiddleware(pub))
 	r.Handle("/metrics", promhttp.Handler())
