@@ -1,21 +1,21 @@
 basePath: /
 definitions:
-  auth.ErrorResponse:
+  internal_auth.ErrorResponse:
     properties:
       error:
         type: string
     type: object
-  auth.LogoutRequest:
+  internal_auth.LogoutRequest:
     properties:
       refresh_token:
         type: string
     type: object
-  auth.RefreshRequest:
+  internal_auth.RefreshRequest:
     properties:
       refresh_token:
         type: string
     type: object
-  auth.RefreshResponse:
+  internal_auth.RefreshResponse:
     properties:
       access_token:
         type: string
@@ -24,12 +24,12 @@ definitions:
       refresh_token:
         type: string
     type: object
-  auth.ResendVerificationRequest:
+  internal_auth.ResendVerificationRequest:
     properties:
       email:
         type: string
     type: object
-  auth.SignupRequest:
+  internal_auth.SignupRequest:
     properties:
       email:
         type: string
@@ -38,14 +38,14 @@ definitions:
       username:
         type: string
     type: object
-  auth.SignupResponseRefactor:
+  internal_auth.SignupResponseRefactor:
     properties:
       tokens:
-        $ref: '#/definitions/auth.SignupResponseTokens'
+        $ref: '#/definitions/internal_auth.SignupResponseTokens'
       user:
-        $ref: '#/definitions/auth.UserInfo'
+        $ref: '#/definitions/internal_auth.UserInfo'
     type: object
-  auth.SignupResponseTokens:
+  internal_auth.SignupResponseTokens:
     properties:
       access_token:
         type: string
@@ -54,7 +54,7 @@ definitions:
       token_type:
         type: string
     type: object
-  auth.UserInfo:
+  internal_auth.UserInfo:
     properties:
       created_at:
         type: string
@@ -84,7 +84,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/auth.LogoutRequest'
+          $ref: '#/definitions/internal_auth.LogoutRequest'
       produces:
       - application/json
       responses:
@@ -93,11 +93,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Log out a user
       tags:
       - auth
@@ -112,7 +112,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Revoke all sessions
@@ -127,11 +127,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/auth.UserInfo'
+            $ref: '#/definitions/internal_auth.UserInfo'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get current user
@@ -149,22 +149,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/auth.RefreshRequest'
+          $ref: '#/definitions/internal_auth.RefreshRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/auth.RefreshResponse'
+            $ref: '#/definitions/internal_auth.RefreshResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Refresh access token
       tags:
       - auth
@@ -193,11 +193,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Register a new user
       tags:
       - auth
@@ -214,26 +214,26 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/auth.SignupRequest'
+          $ref: '#/definitions/internal_auth.SignupRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/auth.SignupResponseRefactor'
+            $ref: '#/definitions/internal_auth.SignupResponseRefactor'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Sign up a new user
       tags:
       - auth
@@ -254,11 +254,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Verify email address
       tags:
       - auth
@@ -273,7 +273,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/auth.ResendVerificationRequest'
+          $ref: '#/definitions/internal_auth.ResendVerificationRequest'
       produces:
       - application/json
       responses:
@@ -282,11 +282,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/auth.ErrorResponse'
+            $ref: '#/definitions/internal_auth.ErrorResponse'
       summary: Resend verification email
       tags:
       - auth

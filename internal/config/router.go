@@ -28,7 +28,7 @@ func InitRouter(
 	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)
 	r.Use(auth.LoggingMiddleware(logger))
-	r.Use(auth.JWTMiddleware(pub))
+	//r.Use(auth.JWTMiddleware(pub))
 	r.Handle("/metrics", promhttp.Handler())
 	registerBusinessRoutes(r)
 

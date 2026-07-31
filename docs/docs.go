@@ -35,7 +35,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/auth.LogoutRequest"
+                            "$ref": "#/definitions/internal_auth.LogoutRequest"
                         }
                     }
                 ],
@@ -46,13 +46,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -80,7 +80,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -106,13 +106,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/auth.UserInfo"
+                            "$ref": "#/definitions/internal_auth.UserInfo"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -138,7 +138,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/auth.RefreshRequest"
+                            "$ref": "#/definitions/internal_auth.RefreshRequest"
                         }
                     }
                 ],
@@ -146,19 +146,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/auth.RefreshResponse"
+                            "$ref": "#/definitions/internal_auth.RefreshResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -203,13 +203,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -235,7 +235,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/auth.SignupRequest"
+                            "$ref": "#/definitions/internal_auth.SignupRequest"
                         }
                     }
                 ],
@@ -243,25 +243,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/auth.SignupResponseRefactor"
+                            "$ref": "#/definitions/internal_auth.SignupResponseRefactor"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -287,7 +287,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/auth.ResendVerificationRequest"
+                            "$ref": "#/definitions/internal_auth.ResendVerificationRequest"
                         }
                     }
                 ],
@@ -298,13 +298,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -336,13 +336,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/auth.ErrorResponse"
+                            "$ref": "#/definitions/internal_auth.ErrorResponse"
                         }
                     }
                 }
@@ -350,7 +350,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "auth.ErrorResponse": {
+        "internal_auth.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -358,7 +358,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.LogoutRequest": {
+        "internal_auth.LogoutRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -366,7 +366,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.RefreshRequest": {
+        "internal_auth.RefreshRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -374,7 +374,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.RefreshResponse": {
+        "internal_auth.RefreshResponse": {
             "type": "object",
             "properties": {
                 "access_token": {
@@ -388,7 +388,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.ResendVerificationRequest": {
+        "internal_auth.ResendVerificationRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -396,7 +396,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.SignupRequest": {
+        "internal_auth.SignupRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -410,18 +410,18 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.SignupResponseRefactor": {
+        "internal_auth.SignupResponseRefactor": {
             "type": "object",
             "properties": {
                 "tokens": {
-                    "$ref": "#/definitions/auth.SignupResponseTokens"
+                    "$ref": "#/definitions/internal_auth.SignupResponseTokens"
                 },
                 "user": {
-                    "$ref": "#/definitions/auth.UserInfo"
+                    "$ref": "#/definitions/internal_auth.UserInfo"
                 }
             }
         },
-        "auth.SignupResponseTokens": {
+        "internal_auth.SignupResponseTokens": {
             "type": "object",
             "properties": {
                 "access_token": {
@@ -435,7 +435,7 @@ const docTemplate = `{
                 }
             }
         },
-        "auth.UserInfo": {
+        "internal_auth.UserInfo": {
             "type": "object",
             "properties": {
                 "created_at": {
