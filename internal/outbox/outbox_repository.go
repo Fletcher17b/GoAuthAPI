@@ -100,7 +100,9 @@ func (r *outbox_repo) FetchPending(ctx context.Context, limit int) ([]*models.Ou
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var events []*models.OutboxEvent
 	for rows.Next() {

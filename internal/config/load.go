@@ -15,11 +15,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type envField struct {
-	key    string
-	target *string
-}
-
 func getEnv(key string) (string, error) {
 	if value := os.Getenv(key); value != "" {
 		return value, nil
@@ -62,15 +57,22 @@ func Load() (*Config, error) {
 	}
 
 	baseURL, err := getEnv("APP_BASE_URL")
+	if err != nil {
+		return nil, err
+	}
 
 	mailconfig, err := LoadMailerConfig(port, baseURL)
 	if mailconfig == nil {
 		return nil, errors.ErrUnsupported // nts: todo switch to correct error designation
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
 	db_config, err := LoadDBconfigs()
 	if err != nil {
-		return nil, fmt.Errorf("Error in DB config")
+		return nil, fmt.Errorf("error in DB config")
 	}
 
 	return &Config{
@@ -88,7 +90,7 @@ func LoadBrokerConfig() BrokerConfig {
 	url := os.Getenv("RABBITMQ_URL")
 	if url == "" {
 		log.Println("No RABBITMQ_URL configured, defaulting to amqp://guest:guest@localhost:5672/")
-		url = "amqp://guest:guest@localhost:5672/"
+		url = "amqp://guest:guest@localhost:5672/" //nolint:gosec // Local fallback default
 	}
 
 	exchange := os.Getenv("RABBITMQ_EXCHANGE")

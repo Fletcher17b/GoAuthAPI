@@ -45,19 +45,19 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	}
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
 	ok, err := schemaExists(db)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
 	if !ok {
 		if err := SqliteMigration(db, "migrations/sqlite/001_init.sql"); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, err
 		}
 	}

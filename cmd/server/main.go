@@ -93,7 +93,14 @@ func main() {
 
 	})
 
-	srv := &http.Server{Addr: ":8081", Handler: r}
+	srv := &http.Server{
+		Addr:              ":8081",
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
 	go func() {
 		logger.Debug("Auth service running on :8081")

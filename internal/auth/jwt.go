@@ -102,6 +102,7 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 	return claims, nil
 }
 
+//nolint:unused
 func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)
 	rand.Read(raw)

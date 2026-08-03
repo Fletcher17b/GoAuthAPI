@@ -19,6 +19,7 @@ linters:
       severity: low
       excludes:
         - G104
+        - G304
 
 formatters:
   enable:

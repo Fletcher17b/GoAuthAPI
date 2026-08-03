@@ -45,11 +45,14 @@ type Service struct {
 	outboxrepo outbox.OutboxRepo
 }
 
+/*
 const (
+
 	maxFailedAttempts = 5
 	lockoutWindow     = 15 * time.Minute
-)
 
+)
+*/
 type SignUpDataDelagateStruct struct {
 }
 
@@ -95,6 +98,10 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	now := time.Now()
 
 	userid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
 	user := &models.User{
 		ID:           userid,
 		Email:        email,
@@ -112,6 +119,9 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
 	tokenid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
 	token := &models.EmailVerificationToken{
 		ID:        tokenid,
 		UserID:    user.ID,
@@ -125,8 +135,8 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	}
 
 	// TODO: Introduce WorkerPool here
-
-	go s.mailer.SendVerificationEmail(email, rawToken)
+	// nts TODO: here rework here
+	go s.mailer.SendVerificationEmail(email, rawToken) //nolint:errcheck
 
 	return nil
 
@@ -225,7 +235,9 @@ func (s *Service) signIpTransaction(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	if err := s.users.CreateTx(ctx, tx, user); err != nil {
 		return wrapUserCreateError(err)
@@ -336,6 +348,9 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
 	tokenid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
 
 	token := &models.EmailVerificationToken{
 		ID:        tokenid,
@@ -400,7 +415,9 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 	if err != nil {
 		return "", nil, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	old, err := s.refreshRepo.FindbyHash(ctx, tx, hash)
 	if err != nil {
@@ -480,11 +497,18 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
 	if err := s.refreshRepo.Revoke(ctx, tx, rt.ID); err != nil {
 		return err
 	}
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

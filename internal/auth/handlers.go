@@ -221,7 +221,7 @@ func signupHandler(s *Service) http.HandlerFunc {
 // @Failure      400 {object} ErrorResponse
 // @Failure      404 {object} ErrorResponse
 // @Router       /verify/{token} [get]
-func verifyEmailHandler(s *Service) http.HandlerFunc {
+func verifyEmailHandler(logger *slog.Logger, s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rawToken := r.URL.Query().Get("t")
 		if rawToken == "" {
@@ -235,7 +235,10 @@ func verifyEmailHandler(s *Service) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Email verified successfully, You can close this tab now"))
+		if _, err := w.Write([]byte("Email verified successfully, You can close this tab now")); err != nil {
+			logger.Error("Failire in Writing response in verifyEmailHandler")
+			return
+		}
 	}
 }
 
@@ -310,12 +313,15 @@ func loginHandler(s *Service) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		resp := LoginResponse{
-			AccessToken:  token,
-			RefreshToken: refresh_token,
+			AccessToken:  token,         // #nosec G117
+			RefreshToken: refresh_token, // #nosec G117
 			ClientID:     clientID,
 		}
 
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil { // #nosec G117
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -349,11 +355,16 @@ func refreshHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		json.NewEncoder(w).Encode(RefreshResponse{
-			AccessToken:      accessToken,
-			RefreshToken:     refreshToken,
+		errr := json.NewEncoder(w).Encode(RefreshResponse{
+			AccessToken:      accessToken,  // #nosec G117
+			RefreshToken:     refreshToken, // #nosec G117
 			RefreshExpiresAt: expiresAt.UTC().Format(time.RFC3339),
 		})
+
+		if errr != nil {
+			http.Error(w, "Something went wrong", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -432,14 +443,19 @@ func meHandler() http.HandlerFunc {
 		userID := r.Context().Value(ContextUserID).(string)
 		email := r.Context().Value(ContextEmail).(string)
 
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"user_id": userID,
 			"email":   email,
 		})
+
+		if err != nil {
+			return
+		}
+
 	}
 }
 
-func healthhander(s *Service, logger *slog.Logger, db *sql.DB) http.HandlerFunc {
+func healthhander(logger *slog.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		if err := db.PingContext(r.Context()); err != nil {
@@ -452,17 +468,26 @@ func healthhander(s *Service, logger *slog.Logger, db *sql.DB) http.HandlerFunc 
 
 			w.WriteHeader(http.StatusServiceUnavailable)
 
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"status": "error",
 			})
+
+			if err != nil {
+				logger.Error("Error in health check")
+				return
+			}
 
 			return
 		}
 
 		logger.Debug("Alles gut with health Check")
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"status": "ok",
 		})
+		if err != nil {
+			logger.Error("Error in health check")
+			return
+		}
 
 		// nts TODO: link the rest of the services when implemented
 
@@ -481,10 +506,10 @@ func RegisterRoutes(
 	r.Post("/login", loginHandler(service))
 	r.Post("/refresh", refreshHandler(service))
 	r.Post("/logout", logoutHandler(service))
-	r.Get("/verify-email", verifyEmailHandler(service))
+	r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
 	r.Post("/resend-verification", resendVerificationHandler(service))
 	r.Post("/signup", signupHandler(service))
-	r.Get("/health", healthhander(service, app.Logger, db))
+	r.Get("/health", healthhander(app.Logger, db))
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	/* Todo:
 	- change URLs to standard

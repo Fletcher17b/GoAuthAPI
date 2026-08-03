@@ -16,6 +16,7 @@ func RunPostgresMigrations(db *sql.DB) error {
 	)
 }
 
+//nolint:unused
 func postgresSchemaExists(db *sql.DB) (bool, error) {
 	var exists bool
 
@@ -61,7 +62,7 @@ func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 			}
 		}
 		if db != nil {
-			db.Close()
+			_ = db.Close()
 		}
 
 		if attempt == maxTries {
@@ -71,7 +72,7 @@ func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 	}
 
 	if err := RunPostgresMigrations(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 

@@ -31,7 +31,7 @@ func NewRabbitMQ(url string, exchange string) (*RabbitMQ, error) {
 
 	channel, err := conn.Channel()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("broker: failed to open channel: %w", err)
 	}
 
@@ -44,15 +44,15 @@ func NewRabbitMQ(url string, exchange string) (*RabbitMQ, error) {
 		false, // no-wait
 		nil,
 	); err != nil {
-		channel.Close()
-		conn.Close()
+		_ = channel.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("broker: failed to declare exchange %q: %w", exchange, err)
 	}
 
 	// Publisher confirms let us know the broker actually accepted the message.
 	if err := channel.Confirm(false); err != nil {
-		channel.Close()
-		conn.Close()
+		_ = channel.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("broker: failed to put channel in confirm mode: %w", err)
 	}
 
