@@ -1,0 +1,298 @@
+basePath: /
+definitions:
+  internal_auth.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  internal_auth.LogoutRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
+  internal_auth.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
+  internal_auth.RefreshResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_expires_at:
+        type: string
+      refresh_token:
+        type: string
+    type: object
+  internal_auth.ResendVerificationRequest:
+    properties:
+      email:
+        type: string
+    type: object
+  internal_auth.SignupRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_auth.SignupResponseRefactor:
+    properties:
+      tokens:
+        $ref: '#/definitions/internal_auth.SignupResponseTokens'
+      user:
+        $ref: '#/definitions/internal_auth.UserInfo'
+    type: object
+  internal_auth.SignupResponseTokens:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
+  internal_auth.UserInfo:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+      verified:
+        type: boolean
+    type: object
+info:
+  contact: {}
+  description: REST API documentation
+  title: AuthAPI
+  version: "1.2"
+paths:
+  /logout:
+    post:
+      consumes:
+      - application/json
+      description: Revokes the provided refresh token.
+      parameters:
+      - description: Logout request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_auth.LogoutRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Log out a user
+      tags:
+      - auth
+  /logout/all:
+    post:
+      description: Revokes all active refresh tokens for the authenticated user.
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke all sessions
+      tags:
+      - auth
+  /me:
+    get:
+      description: Returns information about the authenticated user. Internal use
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_auth.UserInfo'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - users
+      - internal
+  /refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a valid refresh token for a new access token.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_auth.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_auth.RefreshResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Refresh access token
+      tags:
+      - auth
+  /register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account using email and password.
+      parameters:
+      - description: Registration request
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Register a new user
+      tags:
+      - auth
+  /signup:
+    post:
+      consumes:
+      - application/json
+      description: signupHandler acts as a more complex register endpoint that works
+        with the message broker to create a user across multiple consumer APIs, accepts
+        (should) username
+      parameters:
+      - description: Signup request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_auth.SignupRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_auth.SignupResponseRefactor'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Sign up a new user
+      tags:
+      - auth
+  /verify/{token}:
+    get:
+      description: Verifies a user's email using the verification token.
+      parameters:
+      - description: Verification token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Verify email address
+      tags:
+      - auth
+  /verify/resend:
+    post:
+      consumes:
+      - application/json
+      description: Sends a new email verification link to the user.
+      parameters:
+      - description: Resend verification request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_auth.ResendVerificationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_auth.ErrorResponse'
+      summary: Resend verification email
+      tags:
+      - auth
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

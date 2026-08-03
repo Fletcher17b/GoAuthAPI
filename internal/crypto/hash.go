@@ -13,12 +13,12 @@ func HashPassword(password string) (string, error) {
 	return string(b), err
 }
 
-func ComparePassword(hash, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-}
-
 func HashToken(token, secret string) string {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(token))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func ComparePassword(hash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }

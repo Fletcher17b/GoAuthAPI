@@ -1,14 +1,19 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type RefreshToken struct {
-	ID        string
-	UserID    string
-	ClientID  string
-	TokenHash string
-	/* IPAddress string */
-	ExpiresAt time.Time
-	RevokedAt *time.Time
-	CreatedAt time.Time
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	TokenHash   string
+	ClientID    string
+	ParentToken uuid.UUID
+	FamilyID    uuid.UUID
+	ExpiresAt   time.Time
+	RevokedAt   *time.Time
+	CreatedAt   time.Time
 }

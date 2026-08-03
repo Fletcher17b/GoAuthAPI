@@ -1,10 +1,14 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type EmailVerificationToken struct {
-	ID        string     `db:"token_id"`
-	UserID    string     `db:"user_id"`
+	ID        uuid.UUID  `db:"token_id"`
+	UserID    uuid.UUID  `db:"user_id"`
 	TokenHash string     `db:"token_hash"`
 	ExpiresAt time.Time  `db:"expires_at"`
 	UsedAt    *time.Time `db:"used_at"`

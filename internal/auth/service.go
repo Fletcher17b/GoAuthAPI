@@ -3,16 +3,19 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
-	"errors"
-	"fmt"
+	"database/sql"
+	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/auth/metrics"
 	auth "AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
+	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 )
 
@@ -22,10 +25,12 @@ const ErrInvalidToken string = "Invalid Token"
 */
 
 /*
-	Todo: Activate user method on repo
+	Todo: Switch service struct to use app struct
 */
 
 type Service struct {
+	db *sql.DB
+
 	users       users.Repository
 	refreshRepo auth.RefreshTokenRepository
 
@@ -36,6 +41,19 @@ type Service struct {
 	PublicKey  *rsa.PublicKey
 
 	tokenSecret string
+
+	outboxrepo outbox.OutboxRepo
+}
+
+/*
+const (
+
+	maxFailedAttempts = 5
+	lockoutWindow     = 15 * time.Minute
+
+)
+*/
+type SignUpDataDelagateStruct struct {
 }
 
 func NewService(
@@ -47,6 +65,10 @@ func NewService(
 
 	privateKey *rsa.PrivateKey,
 	tokenSecret string,
+
+	outboxrepo outbox.OutboxRepo,
+	db *sql.DB,
+
 ) *Service {
 	return &Service{
 		users:           users,
@@ -55,6 +77,8 @@ func NewService(
 		mailer:          mailer,
 		privateKey:      privateKey,
 		tokenSecret:     tokenSecret,
+		outboxrepo:      outboxrepo,
+		db:              db,
 	}
 }
 
@@ -73,8 +97,13 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 	now := time.Now()
 
+	userid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
 	user := &models.User{
-		ID:           uuid.NewString(),
+		ID:           userid,
 		Email:        email,
 		PasswordHash: &hash,
 		IsActive:     false,
@@ -83,14 +112,18 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
-		return err
+		return wrapUserCreateError(err)
 	}
 
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
+	tokenid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        tokenid,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(24 * time.Hour),
@@ -102,31 +135,36 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 	}
 
 	// TODO: Introduce WorkerPool here
-
-	go s.mailer.SendVerificationEmail(email, rawToken)
+	// nts TODO: here rework here
+	go s.mailer.SendVerificationEmail(email, rawToken) //nolint:errcheck
 
 	return nil
 
 }
 
-func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password string) (*RegisterVerboseResponse, error) {
+// nts: TODO: Collapse into a struct
+func (s *Service) signupDataBuilder(email, username, password, clientID string) (
+	*models.User,
+	*models.EmailVerificationToken,
+	*models.RefreshToken,
+	*models.OutboxEvent,
+	*UserInfo,
+	string,
+	error,
+) {
+	now := time.Now()
 
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, "", err
 	}
 
-	if s.emailVerifyrepo == nil {
-		panic("emailVerifyrepo not configured")
+	userID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
 	}
-	if s.mailer == nil {
-		panic("mailer not configured")
-	}
-
-	now := time.Now()
-
 	user := &models.User{
-		ID:           uuid.NewString(),
+		ID:           userID,
 		Email:        email,
 		PasswordHash: &hash,
 		IsActive:     false,
@@ -134,31 +172,141 @@ func (s *Service) RegisterAndReturnUser(ctx context.Context, email, password str
 		UpdatedAt:    now,
 	}
 
-	if err := s.users.Create(ctx, user); err != nil {
-		return nil, err
-	}
-
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
-
+	verificationTokenID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        verificationTokenID,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}
 
-	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+	familyID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
+
+	plaintoken, refreshModel, err := generateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
+
+	userInfo := UserInfo{
+		UserID:    user.ID,
+		Email:     email,
+		Username:  username,
+		Verified:  false,
+		CreatedAt: now,
+	}
+	outboxPayload, err := json.Marshal(userInfo)
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
+
+	outboxEventID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, "", err
+	}
+	outboxEvent := &models.OutboxEvent{
+		ID:          outboxEventID,
+		EventType:   models.UserCreated,
+		Payload:     outboxPayload,
+		Status:      models.StatusPending,
+		NextRetryAt: now,
+		CreatedAt:   now,
+	}
+
+	return user, token, refreshModel, outboxEvent, &userInfo, plaintoken, nil
+}
+
+func (s *Service) signIpTransaction(
+	ctx context.Context,
+	user *models.User,
+	token *models.EmailVerificationToken,
+	refresh *models.RefreshToken,
+	outbox *models.OutboxEvent,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if err := s.users.CreateTx(ctx, tx, user); err != nil {
+		return wrapUserCreateError(err)
+	}
+	if err := s.emailVerifyrepo.CreateTx(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := s.refreshRepo.CreateTx(ctx, tx, refresh); err != nil {
+		return err
+	}
+	if err := s.outboxrepo.CreateTx(ctx, tx, outbox); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func wrapUserCreateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isUniqueConstraintError(err) {
+		return ErrEmailAlreadyExists
+	}
+	return err
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
+}
+
+func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, refreshToken string) (*SignupResponseRefactor, error) {
+	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
+	if err != nil {
 		return nil, err
 	}
 
-	go s.mailer.SendVerificationEmail(user.Email, rawToken)
-
-	return &RegisterVerboseResponse{
-		UserID: user.ID,
-		Role:   "USER",
+	return &SignupResponseRefactor{
+		UserToken: SignupResponseTokens{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			TokenType:    "bearer",
+		},
+		UserInfo: userinfo,
 	}, nil
+}
+
+func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
+
+	clientID := generateClientID()
+	user, emailVerifyToken, refreshToken, outboxEvent, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
+	if err != nil {
+		/* nts */
+		return nil, err
+	}
+
+	err2 := s.signIpTransaction(ctx, user, emailVerifyToken, refreshToken, outboxEvent)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	metrics.SignupsTotal.WithLabelValues("success").Inc()
+	return s.signupResponseBuilder(user, *response_userinfo, plaintoken)
+
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
@@ -166,11 +314,11 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 
 	token, err := s.emailVerifyrepo.FindValidByHash(ctx, tokenHash)
 	if err != nil {
-		return errors.New("invalid or expired token")
+		return ErrInvalidVerificationToken
 	}
 
 	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
-		return errors.New("token invalid")
+		return ErrInvalidVerificationToken
 	}
 
 	now := time.Now()
@@ -178,8 +326,6 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 	if err := s.emailVerifyrepo.MarkUsed(ctx, token.ID, now); err != nil {
 		return err
 	}
-
-	// 	_ = s.emailVerifyrepo.DeleteByUserID(ctx, token.UserID)
 
 	return s.users.ActivateUser(ctx, token.UserID)
 }
@@ -201,8 +347,13 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	rawToken := uuid.NewString()
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 
+	tokenid, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
 	token := &models.EmailVerificationToken{
-		ID:        uuid.NewString(),
+		ID:        tokenid,
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
@@ -216,65 +367,108 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	return s.mailer.SendVerificationEmail(user.Email, rawToken)
 }
 
-/*
-	TODO: add ip binding implementation here
-*/
-
 func (s *Service) Login(ctx context.Context, email, password string) (string, string, string, error) {
-
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil || user == nil || user.PasswordHash == nil {
-		return "", "", "", fmt.Errorf("login failed: %w", ErrInvalidCredentials)
+		return "", "", "", ErrInvalidCredentials
 	}
 
 	if err := crypto.ComparePassword(*user.PasswordHash, password); err != nil {
-		return "", "", "", fmt.Errorf("login failed: %w", ErrInvalidCredentials)
+		return "", "", "", ErrInvalidCredentials
 	}
 	/*
 		if !user.IsActive {
 			return "", "", "", fmt.Errorf("login failed: %w", ErrEmailNotVerified)
-		} */
+		}
+	*/
 
 	access, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
 	if err != nil {
-		println("error point: ")
 		return "", "", "", err
 	}
 
 	clientID := generateClientID()
 
-	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, clientID, s.tokenSecret)
+	familyID, err := uuid.NewV7()
 	if err != nil {
-		println("error point 2")
+		return "", "", "", err
+	}
+	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
+	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	if err != nil {
 		return "", "", "", err
 	}
 
 	if err := s.refreshRepo.Create(ctx, refreshModel); err != nil {
-		println("error point 3")
 		return "", "", "", err
 	}
 
+	metrics.LoginAttemptsTotal.WithLabelValues("success").Inc()
 	return access, refreshPlain, clientID, nil
 }
 
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, string, time.Time, error) {
+func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string, *models.RefreshToken, error) {
 
 	hash := crypto.HashToken(refreshToken, s.tokenSecret)
 
-	old, err := s.refreshRepo.FindValidByHash(ctx, hash)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", "", time.Time{}, ErrInvalidToken
+		return "", nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	old, err := s.refreshRepo.FindbyHash(ctx, tx, hash)
+	if err != nil {
+		return "", nil, ErrInvalidToken
 	}
 
-	/* // 🔒 IP binding enforcement
-	if old.IPAddress != currentIP {
-		_ = s.refreshRepo.Revoke(ctx, old.ID)
-		return "", "", ErrIPMismatch
-	} */
+	if old.ExpiresAt.Before(time.Now()) {
+		return "", nil, ErrInvalidToken
+	}
 
-	_ = s.refreshRepo.Revoke(ctx, old.ID)
+	if old.RevokedAt != nil {
+		_ = s.refreshRepo.RevokeAllForFamily(ctx, tx, old.FamilyID)
+		_ = tx.Commit()
+		return "", nil, ErrRefreshReuse
+	}
 
-	user, err := s.users.FindByID(ctx, old.UserID)
+	if err := s.refreshRepo.Revoke(ctx, tx, old.ID); err != nil {
+		return "", nil, err
+	}
+
+	plain, model, err := generateRefreshToken(
+		old.UserID,
+		old.FamilyID,
+		old.ID,
+		old.ClientID,
+		s.tokenSecret,
+	)
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	if err := s.refreshRepo.CreateTx(ctx, tx, model); err != nil {
+		return "", nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", nil, err
+	}
+
+	metrics.RefreshReuseDetectedTotal.Inc()
+	return plain, model, nil
+}
+
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, string, time.Time, error) {
+	newPlain, newModel, err := s.rotateHelper(ctx, refreshToken)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+
+	user, err := s.users.FindByID(ctx, newModel.UserID)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -285,16 +479,6 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 		s.privateKey,
 	)
 	if err != nil {
-		return "", "", time.Time{}, err
-	}
-
-	newPlain, newModel, err :=
-		generateRefreshToken(user.ID, old.ClientID, s.tokenSecret)
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-
-	if err := s.refreshRepo.Create(ctx, newModel); err != nil {
 		return "", "", time.Time{}, err
 	}
 
@@ -309,9 +493,25 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 		return ErrInvalidToken
 	}
 
-	return s.refreshRepo.Revoke(ctx, rt.ID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if err := s.refreshRepo.Revoke(ctx, tx, rt.ID); err != nil {
+		return err
+	}
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (s *Service) RevokeAll(ctx context.Context, userID string) error {
+func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
 	return s.refreshRepo.RevokeAllForUser(ctx, userID)
 }

@@ -1,0 +1,20 @@
+FROM rabbitmq:3.13-management-alpine
+
+# Enable useful add-ons/plugins
+# - rabbitmq_prometheus: Exports metrics directly to Prometheus (scraping port 15692)
+# - rabbitmq_shovel & rabbitmq_shovel_management: For moving/replicating messages safely
+# - rabbitmq_federation: For clustering nodes over WAN/different networks
+# - rabbitmq_consistent_hash_exchange: For load-balancing messages across queues
+RUN rabbitmq-plugins enable --offline \
+    rabbitmq_prometheus \
+    rabbitmq_shovel \
+    rabbitmq_shovel_management \
+    rabbitmq_federation \
+    rabbitmq_consistent_hash_exchange
+
+# Expose required ports:
+# 5672:  AMQP protocol
+# 15672: Management UI (HTTP)
+# 15692: Prometheus metrics endpoint
+# 1883:  MQTT (uncomment in EXPOSE and plugins if enabled)
+EXPOSE 5672 15672 15692

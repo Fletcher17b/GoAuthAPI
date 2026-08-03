@@ -1,0 +1,106 @@
+name: Go CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-lint:
+    name: Build, lint, and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Create CI configuration
+        env:
+          SMTP_HOST: ${{ secrets.CI_SMTP_HOST }}
+          SMTP_USER: ${{ secrets.CI_SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.CI_SMTP_APP_PASSWORD }}
+          TOKEN_SECRET: ${{ secrets.CI_TOKEN_SECRET }}
+        run: |
+          mkdir -p creds
+
+          # Generate disposable RSA keys for this CI run.
+          openssl genrsa -out creds/private.pem 2048
+          openssl rsa \
+            -in creds/private.pem \
+            -pubout \
+            -out creds/public.pem
+
+          chmod 600 creds/private.pem
+          chmod 644 creds/public.pem
+
+          cat > .env.compose <<EOF
+          APP_ENV=test
+          DB_DRIVER="postgres"
+          LOG_LEVEL="info"
+
+          SQLITE_PATH="auth.db"
+
+          PSQL_HOST="db"
+          PSQL_PORT="5432"
+          PSQL_USER="auth_db"
+          PSQL_PASSWORD="auth_db123"
+          PSQL_DATABASE="authDB"
+
+          SMTP_HOST="${SMTP_HOST}"
+          SMTP_PORT=587
+          SMTP_USER="${SMTP_USER}"
+          SMTP_APP_PASSWORD="${SMTP_APP_PASSWORD}"
+          SMTP_FROM="Auth Service <no-reply@grilloworks.com>"
+
+          APP_BASE_URL="http://localhost:8081"
+
+          TOKEN_SECRET="${TOKEN_SECRET}"
+
+          AUTH_PRIVATE_KEY_PATH="/run/secrets/authapi_private_key"
+          AUTH_PUBLIC_KEY_PATH="/run/secrets/authapi_public_key"
+
+          CORS_ALLOWED_ORIGINS="http://localhost:8080,http://localhost:8081,http://127.0.0.1:5500"
+
+          RABBITMQ_URL=""
+          RABBITMQ_EXCHANGE=
+          EOF
+
+      - name: Start required services with Docker Compose
+        run: |
+          docker compose up -d db rabbitmq
+          docker compose ps
+
+      - name: Wait for database to become healthy
+        run: |
+          for i in $(seq 1 20); do
+            status=$(docker inspect --format='{{json .State.Health.Status}}' \
+              $(docker compose ps -q db) 2>/dev/null || echo null)
+
+            if [ "$status" = '"healthy"' ]; then
+              exit 0
+            fi
+
+            sleep 3
+          done
+
+          docker compose logs db
+          exit 1
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+          args: --timeout 5m
+
+      - name: Run tests
+        run: go test ./...

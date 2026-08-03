@@ -1,0 +1,91 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authDB
+      POSTGRES_USER: auth_db
+      POSTGRES_PASSWORD: auth_db123
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_db -d authDB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - backend
+    deploy:
+      replicas: 1
+      
+      restart_policy:
+        condition: on-failure
+      resources:
+          reservations:
+            cpus: "0.25"
+            memory: 128M
+          limits:
+            cpus: "1.0"
+            memory: 4096M
+
+
+  api:
+    image: authapi:latest
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env.swarm
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+    secrets:
+      - authapi_private_key
+      - authapi_public_key
+
+    deploy:
+      replicas: 2
+      restart_policy:
+        delay: 5s
+        max_attempts: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+secrets:
+  authapi_private_key:
+    external: true
+  authapi_public_key:
+    external: true
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: overlay

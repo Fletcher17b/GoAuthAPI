@@ -2,15 +2,19 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 )
 
-func RunMigrations(db *sql.DB, path string) error {
+func executeMigration(db *sql.DB, path string) error {
 	migration, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading migration %s: %w", path, err)
 	}
 
-	_, err = db.Exec(string(migration))
-	return err
+	if _, err := db.Exec(string(migration)); err != nil {
+		return fmt.Errorf("executing migration %s: %w", path, err)
+	}
+
+	return nil
 }

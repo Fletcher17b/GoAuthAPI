@@ -6,19 +6,38 @@ import (
 	"errors"
 	"time"
 
+	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type EmailVerificationSQLiteRepo struct {
-	db *sql.DB
+	/* db *sql.DB */
+	db dbtx.DBTX
 }
 
-func NewEmailVerificationRepo(db *sql.DB) EmailVerificationRepository {
+func NewEmailVerificationSQLiteRepo(db *sql.DB) EmailVerificationRepository {
 	return &EmailVerificationSQLiteRepo{db: db}
 }
 
 func (r *EmailVerificationSQLiteRepo) Create(ctx context.Context, t *models.EmailVerificationToken) error {
 	_, err := r.db.ExecContext(
+		ctx,
+		`INSERT INTO email_verification_tokens
+		 (token_id, user_id, token_hash, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		t.ID,
+		t.UserID,
+		t.TokenHash,
+		t.ExpiresAt,
+		t.CreatedAt,
+	)
+	return err
+}
+
+func (r *EmailVerificationSQLiteRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.EmailVerificationToken) error {
+	_, err := exec.ExecContext(
 		ctx,
 		`INSERT INTO email_verification_tokens
 		 (token_id, user_id, token_hash, expires_at, created_at)
@@ -61,7 +80,7 @@ func (r *EmailVerificationSQLiteRepo) FindValidByHash(ctx context.Context, hash 
 	return &t, nil
 }
 
-func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID string, usedAt time.Time) error {
+func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID uuid.UUID, usedAt time.Time) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`UPDATE email_verification_tokens
@@ -73,7 +92,7 @@ func (r *EmailVerificationSQLiteRepo) MarkUsed(ctx context.Context, tokenID stri
 	return err
 }
 
-func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, userID string) error {
+func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens WHERE user_id = ?`,
@@ -82,10 +101,7 @@ func (r *EmailVerificationSQLiteRepo) DeleteAllForUser(ctx context.Context, user
 	return err
 }
 
-func (r *EmailVerificationSQLiteRepo) DeleteByUserID(
-	ctx context.Context,
-	userID string,
-) error {
+func (r *EmailVerificationSQLiteRepo) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`DELETE FROM email_verification_tokens WHERE user_id = ?`,

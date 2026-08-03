@@ -16,11 +16,16 @@ CREATE TABLE refresh_tokens (
     user_id TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     client_id TEXT NOT NULL,
+    family_id TEXT NOT NULL,
+    ptoken_id TEXT,
     expires_at DATETIME NOT NULL,
     revoked_at DATETIME,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
+ON refresh_tokens(family_id);
 
 CREATE TABLE email_verification_tokens (
     token_id TEXT PRIMARY KEY,
@@ -59,3 +64,6 @@ CREATE TABLE user_roles (
     PRIMARY KEY (user_id, role),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+
+

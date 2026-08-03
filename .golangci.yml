@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  tests: true
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - staticcheck
+    - govet
+    - unused
+    - ineffassign
+    - gosec
+
+  settings:
+    gosec:
+      severity: low
+      excludes:
+        - G104
+        - G304
+
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
