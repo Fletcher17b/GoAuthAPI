@@ -191,7 +191,7 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 		return nil, nil, nil, nil, nil, "", err
 	}
 
-	plaintoken, refreshModel, err := generateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	plaintoken, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
 	if err != nil {
 		return nil, nil, nil, nil, nil, "", err
 	}
@@ -292,7 +292,7 @@ func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, re
 
 func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
 
-	clientID := generateClientID()
+	clientID := GenerateClientID()
 	user, emailVerifyToken, refreshToken, outboxEvent, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
 	if err != nil {
 		/* nts */
@@ -333,7 +333,7 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
-		return err
+		return nil
 	}
 
 	// No matching account, or already verified: don't reveal which case
@@ -387,14 +387,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 		return "", "", "", err
 	}
 
-	clientID := generateClientID()
+	clientID := GenerateClientID()
 
 	familyID, err := uuid.NewV7()
 	if err != nil {
 		return "", "", "", err
 	}
 	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
-	refreshPlain, refreshModel, err := generateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -438,7 +438,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		return "", nil, err
 	}
 
-	plain, model, err := generateRefreshToken(
+	plain, model, err := GenerateRefreshToken(
 		old.UserID,
 		old.FamilyID,
 		old.ID,

@@ -43,12 +43,12 @@ func GenerateAccessToken(
 	return token.SignedString(privateKey)
 }
 
-func generateClientID() string {
+func GenerateClientID() string {
 	return uuid.NewString()
 }
 
 // nts TODO: document this shit, familyID is the session identifier, clientID is kinda useless rn but half the shit usses it
-func generateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
+func GenerateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -103,7 +103,7 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 }
 
 //nolint:unused
-func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
+func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)
 	rand.Read(raw)
 

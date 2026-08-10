@@ -72,25 +72,16 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 CREATE TABLE IF NOT EXISTS outbox_events (
     id UUID PRIMARY KEY,
-
     aggregate_type VARCHAR(100) NOT NULL,
     aggregate_id UUID NOT NULL,
-
     event_type VARCHAR(200) NOT NULL,
-
     payload JSONB NOT NULL,
     headers JSONB,
-
     status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-
     retry_count INTEGER NOT NULL DEFAULT 0,
-
     next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
     created_at TIMESTAMPTZ NOT NULL,
-
     published_at TIMESTAMPTZ,
-
     last_error TEXT
 );
 

@@ -313,7 +313,6 @@ func LoadDBconfigs() (DatabaseConfig, error) {
 
 	//nts: if any future db config (creds, port etc) goes here
 }
-
 func parseEnvList(raw string) []string {
 	if raw == "" {
 		return nil
@@ -321,12 +320,17 @@ func parseEnvList(raw string) []string {
 
 	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
+
 	for _, part := range parts {
 		value := strings.TrimSpace(part)
 		value = strings.Trim(value, `"`)
 		if value != "" {
 			out = append(out, value)
 		}
+	}
+
+	if len(out) == 0 {
+		return nil
 	}
 
 	return out

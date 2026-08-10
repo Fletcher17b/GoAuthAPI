@@ -101,7 +101,7 @@ func JWTMiddleware(pub *rsa.PublicKey) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID)
+			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID.String())
 			ctx = context.WithValue(ctx, ContextEmail, claims.Email)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
