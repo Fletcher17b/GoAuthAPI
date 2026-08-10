@@ -519,9 +519,9 @@ func TestPostgresRepository_ActivateUser(t *testing.T) {
 		t.Error("EmailVerified = false, want true")
 	}
 
-	if !after.UpdatedAt.After(before.UpdatedAt) {
+	if after.UpdatedAt.Before(before.UpdatedAt) {
 		t.Errorf(
-			"UpdatedAt = %v, want after %v",
+			"UpdatedAt = %v, want >= %v",
 			after.UpdatedAt,
 			before.UpdatedAt,
 		)

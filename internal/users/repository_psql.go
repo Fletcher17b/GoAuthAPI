@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
@@ -95,21 +96,10 @@ func (r *postgresRepo) ActivateUser(ctx context.Context, userID uuid.UUID) error
 		ctx,
 		`UPDATE users
 		 SET is_active = TRUE,
-		     updated_at = CURRENT_TIMESTAMP
-		 WHERE user_id = $1`,
-		userID,
-	)
-
-	if err != nil {
-		return err
-	}
-
-	_, err = r.db.ExecContext(
-		ctx,
-		`UPDATE users
-		 SET email_verified = TRUE,
-		     updated_at = CURRENT_TIMESTAMP
-		 WHERE user_id = $1`,
+		     email_verified = TRUE,
+		     updated_at = $1
+		 WHERE user_id = $2`,
+		time.Now(),
 		userID,
 	)
 
