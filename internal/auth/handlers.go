@@ -4,6 +4,7 @@ import (
 	"AuthAPI/main/internal/auth/app"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -98,6 +99,21 @@ type SignupResponseRefactor struct {
 }
 
 //////////////////////////////////
+
+type EmailVerificationRequestPayload struct {
+	UserID uuid.UUID `json:"user_id"`
+	Email  string    `json:"email"`
+
+	EventID         uuid.UUID `json:"event_id"`
+	VerificationUrl string    `json:"verification_url"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+//////////////////////////////////
+
+func VerifyEmailURLConstructor(BaseURL, token string) string {
+	return fmt.Sprintf("%s/verify-email?t=%s", BaseURL, token)
+}
 
 func writeJSON(
 	w http.ResponseWriter,
@@ -275,6 +291,7 @@ func resendVerificationHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+// nts TODO: loginhandler missing its Swagger info
 func loginHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -498,9 +515,16 @@ func RegisterRoutes(
 	app app.App,
 	r chi.Router,
 	db *sql.DB,
+	app_url string,
 ) {
 
-	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo, db)
+	/* nts: this look fucking ugly use the fucking struct */
+
+	service := NewService(
+		app.UserRepo, app.RefreshRepo, app.EmailRepo,
+		app.Mailer, app.PrivateKey, app.TokenSecret,
+		app.OutboxRepo, db, app_url,
+	)
 
 	r.Post("/register", registerHandler(service))
 	r.Post("/login", loginHandler(service))
@@ -514,6 +538,7 @@ func RegisterRoutes(
 	/* Todo:
 	- change URLs to standard
 	- remeber wtf does this mean???
+	- I think it was adding auth/v1/
 	*/
 
 	r.Group(func(r chi.Router) {

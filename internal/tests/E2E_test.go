@@ -56,7 +56,7 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 
 	logger := newTestLogger()
 
-	a := app.App{
+	a := app.App{ //#nosec
 		UserRepo:    users.NewUserRepo("postgres", db),
 		RefreshRepo: refresh.NewPostgresRefreshRepo(db),
 		EmailRepo:   mail.NewEmailVerificationRepo("postgres", db),
@@ -67,9 +67,9 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 		OutboxRepo:  outbox.NewOutboxRepoAuxiliary("postgres", db),
 		Logger:      logger,
 	}
-
+	/*nts: TODO: Wire this up */
 	r := config.InitRouter(&config.Config{}, &priv.PublicKey, logger, func(r chi.Router) {
-		auth.RegisterRoutes(a, r, db)
+		auth.RegisterRoutes(a, r, db, "")
 	})
 
 	return r, priv, &priv.PublicKey
@@ -107,7 +107,12 @@ func (c *e2eClient) get(t *testing.T, path, bearer string) *http.Response {
 
 func decodeBody[T any](t *testing.T, resp *http.Response) T {
 	t.Helper()
-	defer resp.Body.Close()
+	//defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			println(err.Error())
+		}
+	}()
 	var out T
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return out
@@ -186,7 +191,12 @@ func TestE2E_ConcurrentRefresh_OnlyOneWinnerNoFamilyCorruption(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			resp := c.post(t, "/refresh", map[string]string{"refresh_token": login.RefreshToken})
-			defer resp.Body.Close()
+			//defer resp.Body.Close()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					println(err.Error())
+				}
+			}()
 
 			mu.Lock()
 			defer mu.Unlock()

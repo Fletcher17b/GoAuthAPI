@@ -102,6 +102,9 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 	return claims, nil
 }
 
+/*
+	Returns an email Verification Token that expires in 24 hours
+*/
 //nolint:unused
 func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)

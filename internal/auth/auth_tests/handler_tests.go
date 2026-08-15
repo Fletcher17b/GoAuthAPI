@@ -58,7 +58,7 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 
 	logger := newTestLogger()
 
-	a := app.App{
+	a := app.App{ // #nosec
 		UserRepo:    users.NewUserRepo("postgres", db),
 		RefreshRepo: refresh.NewPostgresRefreshRepo(db),
 		EmailRepo:   mail.NewEmailVerificationRepo("postgres", db),
@@ -70,8 +70,9 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 		Logger:      logger,
 	}
 
+	/* nts TODO: wire this correctly */
 	r := config.InitRouter(&config.Config{}, &priv.PublicKey, logger, func(r chi.Router) {
-		auth.RegisterRoutes(a, r, db)
+		auth.RegisterRoutes(a, r, db, "")
 	})
 
 	return r, priv, &priv.PublicKey

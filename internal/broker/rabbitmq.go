@@ -3,11 +3,26 @@ package broker
 import (
 	"context"
 	"fmt"
+	"log"
+	"log/slog"
 	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+//nolint:unused
+type publishResult struct {
+	err error
+}
+
+/*
+	nts: TODO: Need to refactor the publish and overal publishing flow
+	currently on publish we dont await nor log confirmation on DBmodel
+	we need to refactor that to keep track of ACK and NACK responses
+	of the rabbitMQ, also use that logit to coordinate retries
+	(republish on nack and if user not verified upon token expiration)
+*/
 
 // RabbitMQ is a Broker implementation backed by a single AMQP connection
 // and channel, publishing to a topic exchange keyed by routingKey.
@@ -15,57 +30,100 @@ type RabbitMQ struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 
-	exchange string
+	user_queue *amqp.Queue
+	exchange   string
+
+	confirms <-chan amqp.Confirmation
+	/* pending map[uint64]chan publishResult
+	done chan struct{}
+	wg   sync.WaitGroup */
 
 	mu     sync.Mutex // guards channel access, amqp channels are not safe for concurrent publish
 	closed bool
 }
 
-// NewRabbitMQ dials the given AMQP URL, opens a channel, and declares a
-// durable topic exchange with the given name (created if it doesn't exist).
-func NewRabbitMQ(url string, exchange string) (*RabbitMQ, error) {
+// NewRabbitMQ dials the given AMQP URL, opens a channel, and declares a durable topic exchange with the given name (created if it doesn't exist).
+func NewRabbitMQ(url string, exchange string, logger *slog.Logger) (*RabbitMQ, error) {
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		return nil, fmt.Errorf("broker: failed to connect to rabbitmq: %w", err)
+		logger.Error("broker: failed to connect to rabbitmq: %w", err.Error(), err)
+		return nil, err
 	}
 
 	channel, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("broker: failed to open channel: %w", err)
+		logger.Error("broker: failed to open channel: %w", err.Error(), err)
+		return nil, err
 	}
 
 	if err := channel.ExchangeDeclare(
 		exchange,
 		"topic",
-		true,  // durable
-		false, // auto-deleted
-		false, // internal
-		false, // no-wait
+		true,
+		false,
+		false,
+		false,
 		nil,
 	); err != nil {
 		_ = channel.Close()
 		_ = conn.Close()
-		return nil, fmt.Errorf("broker: failed to declare exchange %q: %w", exchange, err)
+
+		errorstring := "broker: failed to declare exchange " + exchange + " : " + err.Error()
+		logger.Error(errorstring)
+
+		return nil, err
 	}
 
-	// Publisher confirms let us know the broker actually accepted the message.
 	if err := channel.Confirm(false); err != nil {
 		_ = channel.Close()
 		_ = conn.Close()
-		return nil, fmt.Errorf("broker: failed to put channel in confirm mode: %w", err)
+
+		errorstring := "broker: failed to put channel in confirm mode: " + err.Error()
+		logger.Error(errorstring, err.Error(), err)
+		return nil, err
 	}
 
+	// name, durable, delete when unused, exclusive, no-wait, arguments
+	user_queue, err := channel.QueueDeclare(
+		"user_service_queue",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		errorstring := "broker: failed to put channel in confirm mode: " + err.Error()
+		logger.Error(errorstring, err.Error(), err)
+		return nil, err
+	}
+
+	if err := channel.QueueBind(user_queue.Name, "user.#", exchange, false, nil); err != nil {
+		_ = channel.Close()
+		_ = conn.Close()
+		logger.Error("broker: failed to bind user_service_queue", "error", err)
+		return nil, err
+	}
+
+	confirms := channel.NotifyPublish(
+		make(chan amqp.Confirmation, 100),
+	)
+
 	return &RabbitMQ{
-		conn:     conn,
-		channel:  channel,
-		exchange: exchange,
+		conn:       conn,
+		channel:    channel,
+		exchange:   exchange,
+		user_queue: &user_queue,
+		confirms:   confirms,
+		/* pending:  make(map[uint64]chan publishResult),
+		done:     make(chan struct{}), */
 	}, nil
 }
 
-// Publish sends payload to the configured exchange using routingKey,
-// waiting for the broker's publisher confirm (or ctx cancellation) before
-// returning.
+/*
+nts: publish sends payload to the configured exchange using routingKey,
+*/
 func (r *RabbitMQ) Publish(
 	ctx context.Context,
 	routingKey string,
@@ -79,13 +137,15 @@ func (r *RabbitMQ) Publish(
 		return fmt.Errorf("broker: publish called on closed connection")
 	}
 
-	confirms := r.channel.NotifyPublish(make(chan amqp.Confirmation, 1))
-
+	/* deliveryTag := r.channel.GetNextPublishSeqNo()
+	resultCh := make(chan publishResult, 1)
+	r.pending[deliveryTag] = resultCh
+	*/
 	err := r.channel.PublishWithContext(
 		ctx,
 		r.exchange,
 		routingKey,
-		true,  // mandatory: return the message if it can't be routed
+		true,  // mandatory
 		false, // immediate
 		amqp.Publishing{
 			ContentType:  "application/json",
@@ -96,21 +156,62 @@ func (r *RabbitMQ) Publish(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("broker: failed to publish to %q: %w", routingKey, err)
+		return fmt.Errorf(
+			"broker: failed to publish to %q: %w",
+			routingKey,
+			err,
+		)
 	}
 
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+
 	select {
-	case confirm, ok := <-confirms:
+	case confirm, ok := <-r.confirms:
 		if !ok {
-			return fmt.Errorf("broker: confirmation channel closed before ack for %q", routingKey)
+			return fmt.Errorf(
+				"broker: confirmation channel closed before ack for %q",
+				routingKey,
+			)
 		}
+
+		log.Println("rabbitmq publisher confirmation",
+			"delivery_tag", confirm.DeliveryTag,
+			"ack", confirm.Ack)
+
 		if !confirm.Ack {
-			return fmt.Errorf("broker: broker nacked message for %q", routingKey)
+			return fmt.Errorf(
+				"broker: broker nacked message for %q",
+				routingKey,
+			)
 		}
+
 		return nil
+	case <-timeout.C:
+		return fmt.Errorf(
+			"broker: timed out waiting for confirmation for %q",
+			routingKey,
+		)
+
 	case <-ctx.Done():
-		return fmt.Errorf("broker: publish to %q cancelled: %w", routingKey, ctx.Err())
+		return fmt.Errorf(
+			"broker: publish to %q cancelled: %w",
+			routingKey,
+			ctx.Err(),
+		)
 	}
+
+	/*
+		if err != nil {
+			delete(r.pending, deliveryTag)
+
+			return fmt.Errorf(
+				"broker: failed to publish to %q: %w",
+				routingKey,
+				err,
+			)
+		}
+	*/
 }
 
 // Close tears down the channel and connection. Safe to call more than once.
@@ -150,3 +251,54 @@ func toAMQPTable(headers map[string]any) amqp.Table {
 	}
 	return table
 }
+
+/*
+func (r *RabbitMQ) confirmationLoop() {
+	defer r.wg.Done()
+	for {
+		select {
+		case <-r.done:
+			return
+		case confirm, ok := <-r.confirms:
+			if !ok {
+				r.failPending(
+					fmt.Errorf("broker: confirmation channel closed"),
+				)
+				return
+			}
+			r.handleConfirmation(confirm)
+		}
+	}
+}
+
+func (r *RabbitMQ) handleConfirmation(
+	confirm amqp.Confirmation,
+) {
+	r.mu.Lock()
+
+	publish, ok := r.pending[confirm.DeliveryTag]
+	delete(r.pending, confirm.DeliveryTag)
+
+	r.mu.Unlock()
+
+	if !ok {
+		r.logger.Warn(
+			"rabbitmq: confirmation for unknown delivery tag",
+			"delivery_tag", confirm.DeliveryTag,
+		)
+		return
+	}
+
+	if confirm.Ack {
+		r.logger.Info(
+			"rabbitmq: publisher confirmation",
+			"delivery_tag", confirm.DeliveryTag,
+			"routing_key", publish.routingKey,
+		)
+		return
+	}
+
+	r.logger.Error( "rabbitmq: publisher NACK",
+		"delivery_tag", confirm.DeliveryTag,
+		"routing_key", publish.routingKey, )}
+*/

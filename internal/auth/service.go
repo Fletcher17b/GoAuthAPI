@@ -43,6 +43,7 @@ type Service struct {
 	tokenSecret string
 
 	outboxrepo outbox.OutboxRepo
+	app_url    string
 }
 
 /*
@@ -53,8 +54,6 @@ const (
 
 )
 */
-type SignUpDataDelagateStruct struct {
-}
 
 func NewService(
 	users users.Repository,
@@ -68,6 +67,7 @@ func NewService(
 
 	outboxrepo outbox.OutboxRepo,
 	db *sql.DB,
+	app_url string,
 
 ) *Service {
 	return &Service{
@@ -79,6 +79,7 @@ func NewService(
 		tokenSecret:     tokenSecret,
 		outboxrepo:      outboxrepo,
 		db:              db,
+		app_url:         app_url,
 	}
 }
 
@@ -142,11 +143,24 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 
 }
 
-// nts: TODO: Collapse into a struct
+// nts: TODO: refactor databuilder to return a collapsed struct instead of a bunch of models
+
+type SignUpData struct {
+	User                   *models.User
+	EmailVerificationToken *models.EmailVerificationToken
+	RefreshToken           *models.RefreshToken
+	UserCreatedEvent       *models.OutboxEvent
+	EmailVerificationEvent *models.OutboxEvent
+	plaintoken             string //nolint:unused
+}
+
+// signupDataBuilder is a helper function that constructs and fills out the models used in the operation.
+// Returns (User, EmailVerificationToken, RefreshToken, OutboxEvent, UserInfo, plainRefreshToken, error) models
 func (s *Service) signupDataBuilder(email, username, password, clientID string) (
 	*models.User,
 	*models.EmailVerificationToken,
 	*models.RefreshToken,
+	*models.OutboxEvent,
 	*models.OutboxEvent,
 	*UserInfo,
 	string,
@@ -156,12 +170,12 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 
 	userID, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 	user := &models.User{
 		ID:           userID,
@@ -176,7 +190,7 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
 	verificationTokenID, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 	token := &models.EmailVerificationToken{
 		ID:        verificationTokenID,
@@ -188,12 +202,12 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 
 	familyID, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 
 	plaintoken, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 
 	userInfo := UserInfo{
@@ -205,15 +219,15 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 	}
 	outboxPayload, err := json.Marshal(userInfo)
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
 
-	outboxEventID, err := uuid.NewV7()
+	outboxEvent_createID, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, nil, "", err
 	}
-	outboxEvent := &models.OutboxEvent{
-		ID:          outboxEventID,
+	outboxEvent_create := &models.OutboxEvent{
+		ID:          outboxEvent_createID,
 		EventType:   models.UserCreated,
 		Payload:     outboxPayload,
 		Status:      models.StatusPending,
@@ -221,15 +235,51 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 		CreatedAt:   now,
 	}
 
-	return user, token, refreshModel, outboxEvent, &userInfo, plaintoken, nil
+	outboxEvent_sendmailID, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, "", err
+	}
+
+	emailPlainToken, EmailVerificationToken, err := GenerateEmailVerificationToken(userID, s.tokenSecret)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, "", err
+	}
+
+	verificationurl := VerifyEmailURLConstructor(s.app_url, emailPlainToken)
+
+	emailoutboxPayloadRaw := EmailVerificationRequestPayload{
+		UserID:          user.ID,
+		Email:           email,
+		EventID:         outboxEvent_sendmailID,
+		VerificationUrl: verificationurl,
+		ExpiresAt:       EmailVerificationToken.ExpiresAt,
+	}
+
+	emailoutboxPayloadJson, err := json.Marshal(emailoutboxPayloadRaw)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, "", err
+	}
+
+	outboxEvent_sendmail := &models.OutboxEvent{
+		ID:          outboxEvent_sendmailID,
+		EventType:   models.EmailVerificationRequested,
+		Payload:     emailoutboxPayloadJson,
+		Status:      models.StatusPending,
+		NextRetryAt: now,
+		CreatedAt:   now,
+	}
+
+	return user, token, refreshModel, outboxEvent_create, outboxEvent_sendmail, &userInfo, plaintoken, nil
 }
 
-func (s *Service) signIpTransaction(
+// signUpTransaction transaction takes the prebuilt models and commits them in a single transaction
+func (s *Service) signUpTransaction(
 	ctx context.Context,
 	user *models.User,
 	token *models.EmailVerificationToken,
 	refresh *models.RefreshToken,
 	outbox *models.OutboxEvent,
+	outbox_mail *models.OutboxEvent,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -251,29 +301,14 @@ func (s *Service) signIpTransaction(
 	if err := s.outboxrepo.CreateTx(ctx, tx, outbox); err != nil {
 		return err
 	}
+	if err := s.outboxrepo.CreateTx(ctx, tx, outbox_mail); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }
 
-func wrapUserCreateError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if isUniqueConstraintError(err) {
-		return ErrEmailAlreadyExists
-	}
-	return err
-}
-
-func isUniqueConstraintError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
-}
-
+// signupResponseBuilder builds the JSON response to be returned to the SignupHandler and sent back the requester/client
 func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, refreshToken string) (*SignupResponseRefactor, error) {
 	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
 	if err != nil {
@@ -293,13 +328,13 @@ func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, re
 func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
 
 	clientID := GenerateClientID()
-	user, emailVerifyToken, refreshToken, outboxEvent, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
+	user, emailVerifyToken, refreshToken, outboxEvent, outboxEvent_sendmail, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
 	if err != nil {
 		/* nts */
 		return nil, err
 	}
 
-	err2 := s.signIpTransaction(ctx, user, emailVerifyToken, refreshToken, outboxEvent)
+	err2 := s.signUpTransaction(ctx, user, emailVerifyToken, refreshToken, outboxEvent, outboxEvent_sendmail)
 	if err2 != nil {
 		return nil, err2
 	}
@@ -514,4 +549,25 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
 	return s.refreshRepo.RevokeAllForUser(ctx, userID)
+}
+
+// Helpers
+
+func wrapUserCreateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isUniqueConstraintError(err) {
+		return ErrEmailAlreadyExists
+	}
+	return err
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
 }

@@ -52,8 +52,6 @@ func (p *Processor) ProcessBatch(ctx context.Context, batchSize int) (int, error
 func (p *Processor) processOne(ctx context.Context, event *models.OutboxEvent) error {
 	headers, err := decodeHeaders(event.Headers)
 	if err != nil {
-		// Malformed headers aren't going to fix themselves on retry, but we
-		// still record the failure rather than dropping the event silently.
 		return p.fail(ctx, event, fmt.Errorf("invalid headers: %w", err))
 	}
 

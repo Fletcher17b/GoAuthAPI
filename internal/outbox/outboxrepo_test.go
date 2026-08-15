@@ -527,13 +527,13 @@ func TestOutboxRepo_FetchPending_SkipLockedConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to begin tx1: %v", err)
 	}
-	defer tx1.Rollback()
+	defer tx1.Rollback() //nolint:errcheck
 
 	tx2, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("failed to begin tx2: %v", err)
 	}
-	defer tx2.Rollback()
+	defer tx2.Rollback() //nolint:errcheck
 
 	repo1 := &outbox_repo{db: tx1}
 	repo2 := &outbox_repo{db: tx2}

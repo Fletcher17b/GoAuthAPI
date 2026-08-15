@@ -22,6 +22,7 @@ import (
 	"AuthAPI/main/internal/auth/logger"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/broker"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
 	"AuthAPI/main/internal/outbox"
@@ -72,24 +73,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	/* var mqBroker broker.Broker
+	var mqBroker broker.Broker
 	if cfg.Database.Driver == "postgres" {
-		rabbit, err := broker.NewRabbitMQ(cfg.Broker.URL, cfg.Broker.Exchange)
+		rabbit, err := broker.NewRabbitMQ(cfg.Broker.URL, cfg.Broker.Exchange, logger)
 		if err != nil {
 			log.Fatalf("failed to connect to rabbitmq: %v", err)
 		}
 		mqBroker = rabbit
-		defer mqBroker.Close()
+		defer func() {
+			if err := mqBroker.Close(); err != nil {
+				logger.Error(err.Error())
+			}
+		}()
 
 		processor := outbox.NewProcessor(app.OutboxRepo, mqBroker)
 		worker := outbox.NewWorker(processor, outbox.WorkerConfig{})
 		go worker.Run(ctx)
 	} else if cfg.Database.Driver == "sqlite" && cfg.Environment == "production" {
 		logger.Info("Application running on production mode with sqlite, are you sure of what you're doing?")
-	} */
+	}
+
+	/* nts: TODO: rewire the router initiation to pass on Service instead of creating it within the router,
+	also think of passing cfg to the service router for a more elegant way of delivering APP_URL */
 
 	r := config.InitRouter(cfg, pub, logger, func(r chi.Router) {
-		auth.RegisterRoutes(*app, r, database)
+		auth.RegisterRoutes(*app, r, database, cfg.AppBaseURL)
 
 	})
 

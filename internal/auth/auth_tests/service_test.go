@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 }
 
 type fakeMailer struct {
-	mu   sync.Mutex
+	mu   sync.Mutex //nolint:unused
 	sent chan struct {
 		to    string
 		token string
@@ -75,6 +75,8 @@ func newServiceTestSetup(t *testing.T) (*auth.Service, *sql.DB, *fakeMailer) {
 	outboxRepo := outbox.NewOutboxRepoAuxiliary("postgres", db)
 	mailer := newFakeMailer()
 
+	/* nts: TODO: wire this up */
+
 	svc := auth.NewService(
 		userRepo,
 		refreshRepo,
@@ -84,6 +86,7 @@ func newServiceTestSetup(t *testing.T) (*auth.Service, *sql.DB, *fakeMailer) {
 		"test-token-secret",
 		outboxRepo,
 		db,
+		"",
 	)
 
 	return svc, db, mailer

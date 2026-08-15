@@ -100,7 +100,7 @@ func TestLoadBrokerConfig(t *testing.T) {
 
 		got := LoadBrokerConfig()
 
-		want := BrokerConfig{
+		want := BrokerConfig{ //#nosec
 			URL:      "amqp://guest:guest@localhost:5672/",
 			Exchange: "authapi.events",
 		}
@@ -108,7 +108,7 @@ func TestLoadBrokerConfig(t *testing.T) {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
-
+	//#nosec
 	t.Run("uses configured values", func(t *testing.T) {
 		t.Setenv("RABBITMQ_URL", "amqp://user:pass@broker:5672/")
 		t.Setenv("RABBITMQ_EXCHANGE", "custom.exchange")

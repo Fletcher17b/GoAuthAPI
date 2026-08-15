@@ -11,13 +11,6 @@ type WorkerConfig struct {
 	BatchSize    int
 }
 
-func defaultWorkerConfig() WorkerConfig {
-	return WorkerConfig{
-		PollInterval: 5 * time.Second,
-		BatchSize:    50,
-	}
-}
-
 // Worker periodically drives a Processor to publish due outbox events.
 type Worker struct {
 	processor *Processor
@@ -26,8 +19,33 @@ type Worker struct {
 	stopped chan struct{}
 }
 
-// NewWorker builds a Worker. Zero-value fields in cfg fall back to sane
-// defaults (5s poll interval, batch size 50).
+func defaultWorkerConfig() WorkerConfig {
+	return WorkerConfig{
+		PollInterval: 5 * time.Second,
+		BatchSize:    50,
+	}
+}
+
+// Run blocks, polling on cfg.PollInterval until ctx is cancelled. Intended use: `go worker.Run(ctx)`.
+func (w *Worker) Run(ctx context.Context) {
+	defer close(w.stopped)
+
+	ticker := time.NewTicker(w.cfg.PollInterval)
+	defer ticker.Stop()
+
+	w.tick(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("outbox: worker shutting down")
+			return
+		case <-ticker.C:
+			w.tick(ctx)
+		}
+	}
+}
+
 func NewWorker(processor *Processor, cfg WorkerConfig) *Worker {
 	defaults := defaultWorkerConfig()
 	if cfg.PollInterval <= 0 {
@@ -44,30 +62,6 @@ func NewWorker(processor *Processor, cfg WorkerConfig) *Worker {
 	}
 }
 
-// Run blocks, polling on cfg.PollInterval until ctx is cancelled. Intended
-// to be launched with `go worker.Run(ctx)`.
-func (w *Worker) Run(ctx context.Context) {
-	defer close(w.stopped)
-
-	ticker := time.NewTicker(w.cfg.PollInterval)
-	defer ticker.Stop()
-
-	// Do an initial pass immediately instead of waiting for the first tick.
-	w.tick(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("outbox: worker shutting down")
-			return
-		case <-ticker.C:
-			w.tick(ctx)
-		}
-	}
-}
-
-// Stopped returns a channel that's closed once Run has returned, useful
-// for waiting on graceful shutdown from the caller.
 func (w *Worker) Stopped() <-chan struct{} {
 	return w.stopped
 }

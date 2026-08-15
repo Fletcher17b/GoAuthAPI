@@ -64,6 +64,7 @@ func cleanupUser(t *testing.T, userID uuid.UUID) {
 	}
 }
 
+//nolint:unused
 func stringPtr(s string) *string {
 	return &s
 }
