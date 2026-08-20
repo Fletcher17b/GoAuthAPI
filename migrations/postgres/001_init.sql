@@ -1,10 +1,12 @@
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
+    tenant_id UUID,
     username TEXT UNIQUE,
     password_hash TEXT,
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    locked_at TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
@@ -85,6 +87,38 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     last_error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS tenants (
+    tenant_id UUID PRIMARY KEY,
+    tenant_name TEXT NOT NULL UNIQUE,
+    name TEXT,
+
+    url TEXT NOT NULL,
+    email TEXT NOT NULL,
+    status TEXT NOT NULL,
+    CHECK (status IN ('pending', 'active', 'suspended'))
+
+    public_key TEXT NOT NULL,
+    api_key_hash TEXT NOT NULL,
+    allowed_origins JSONB,
+    
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+)
+
+INSERT INTO tenants (
+    tenant_id, name, url, email, status,
+    allowed_origins, created_at, updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'Acme Inc.',
+    'https://acme.com',
+    'admin@acme.com',
+    'active',
+    '["https://acme.com"]',
+    NOW(),
+    NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_email
 ON users(email);
 
@@ -108,3 +142,6 @@ ON oauth_identities(provider, provider_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_outbox_pending
 ON outbox_events(status, next_retry_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenantname_unique
+ON tenants (username);

@@ -14,4 +14,6 @@ type Repository interface {
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.User, error)
 	ActivateUser(ctx context.Context, userID uuid.UUID) error
+	LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, lock bool) error
+	ChangePasword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error
 }

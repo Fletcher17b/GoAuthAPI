@@ -3,6 +3,7 @@ package config
 import (
 	"AuthAPI/main/internal/auth"
 	"AuthAPI/main/internal/auth/metrics"
+	"AuthAPI/main/internal/auth/tenants"
 	"crypto/rsa"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ func InitRouter(
 	cfg *Config,
 	pub *rsa.PublicKey,
 	logger *slog.Logger,
+	tenantrepo tenants.TenantRepository,
 	registerBusinessRoutes func(r chi.Router),
 ) *chi.Mux {
 
@@ -25,6 +27,8 @@ func InitRouter(
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	r.Use(auth.TenantMiddleware(tenantrepo))
 
 	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)

@@ -37,7 +37,7 @@ func (r *postgresRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.U
 	_, err := exec.ExecContext(ctx, `
 		INSERT INTO users (
 			user_id, email, username, password_hash,
-			email_verified, is_active, created_at, updated_at
+			email_verified, is_active, created_at, updated_at,
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		u.ID, u.Email, u.Username, u.PasswordHash,
 		u.EmailVerified, u.IsActive,
@@ -59,7 +59,7 @@ func (r *postgresRepo) FindByEmail(ctx context.Context, email string) (*models.U
 	if err := row.Scan(
 		&u.ID, &u.Email, &u.Username, &u.PasswordHash,
 		&u.EmailVerified, &u.IsActive,
-		&u.CreatedAt, &u.UpdatedAt,
+		&u.CreatedAt, &u.UpdatedAt, &u.LockedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -83,7 +83,7 @@ func (r *postgresRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.User
 	if err := row.Scan(
 		&u.ID, &u.Email, &u.Username, &u.PasswordHash,
 		&u.EmailVerified, &u.IsActive,
-		&u.CreatedAt, &u.UpdatedAt,
+		&u.CreatedAt, &u.UpdatedAt, &u.LockedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -101,6 +101,51 @@ func (r *postgresRepo) ActivateUser(ctx context.Context, userID uuid.UUID) error
 		 WHERE user_id = $2`,
 		time.Now(),
 		userID,
+	)
+
+	return err
+}
+
+/*
+Recieves the user id and a bool
+if the bool is true it sets locked_at column in users table to a
+time stamp, marking that user as locked out and unable to log in
+
+if the bool is false it sets the locked_at column in users table
+to NULL (go converts empty pointer (nil) to SQL NULL) marking it
+free to log in
+
+works by the conditional:
+
+	if user.LockedAt == nil {do stuff} else {permission denied}
+	if
+*/
+func (r *postgresRepo) LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, lock bool) error {
+	var lockedAt *time.Time
+
+	if lock {
+		now := time.Now()
+		lockedAt = &now
+	}
+
+	_, err := exec.ExecContext(ctx, `
+		UPDATE users
+		SET locked_at = $1
+		WHERE user_id = $2`,
+		lockedAt,
+		user,
+	)
+
+	return err
+}
+
+func (r *postgresRepo) ChangePasword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error {
+	_, err := exec.ExecContext(ctx, `
+		UPDATE users
+		SET password_hash = $1
+		WHERE user_id = $2`,
+		new_password,
+		user,
 	)
 
 	return err

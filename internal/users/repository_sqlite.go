@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
@@ -106,4 +107,27 @@ func (r *sqliteRepo) ActivateUser(ctx context.Context, userID uuid.UUID) error {
 	}
 
 	return err
+}
+
+func (r *sqliteRepo) LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, lock bool) error {
+	var lockedAt *time.Time
+
+	if lock {
+		now := time.Now()
+		lockedAt = &now
+	}
+
+	_, err := exec.ExecContext(ctx, `
+		UPDATE users
+		SET locked_at = $1
+		WHERE user_id = $2`,
+		lockedAt,
+		user,
+	)
+
+	return err
+}
+
+func (r *sqliteRepo) ChangePasword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error {
+	return nil
 }

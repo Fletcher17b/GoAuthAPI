@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"AuthAPI/main/internal/auth/tenants"
 	"context"
 	"crypto/rsa"
 	"errors"
@@ -17,6 +18,14 @@ import (
 type ctxKey string
 
 const ContextRequestID ctxKey = "request_id"
+
+const TenantHeader = "X-Tenant-ID"
+
+var (
+	ErrTenantHeaderMissing = errors.New("missing tenant header")
+	ErrTenantNotFound      = errors.New("tenant not found")
+	ErrTenantInactive      = errors.New("tenant is not active")
+)
 
 func RequestIDFromContext(ctx context.Context) string {
 	if id, ok := ctx.Value(ContextRequestID).(string); ok {
@@ -104,6 +113,33 @@ func JWTMiddleware(pub *rsa.PublicKey) func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID.String())
 			ctx = context.WithValue(ctx, ContextEmail, claims.Email)
 
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func TenantMiddleware(repo tenants.TenantRepository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tenantName := strings.TrimSpace(r.Header.Get(TenantHeader))
+			if tenantName == "" {
+				http.Error(w, ErrTenantHeaderMissing.Error(), http.StatusBadRequest)
+				return
+			}
+
+			tenant, err := repo.FindByTenantName(r.Context(), tenantName)
+			if err != nil {
+				// nonspecific nor detailed error to prevent any information leakage
+				http.Error(w, ErrTenantNotFound.Error(), http.StatusUnauthorized)
+				return
+			}
+
+			if !tenant.IsActive() {
+				http.Error(w, ErrTenantInactive.Error(), http.StatusForbidden)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ContextTenant, tenant)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

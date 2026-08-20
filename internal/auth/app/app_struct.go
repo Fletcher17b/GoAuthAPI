@@ -3,6 +3,7 @@ package app
 import (
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
 	"crypto/rsa"
@@ -18,5 +19,6 @@ type App struct {
 	PublicKey   *rsa.PublicKey
 	TokenSecret string
 	OutboxRepo  outbox.OutboxRepo
+	TenantRepo  tenants.TenantRepository
 	Logger      *slog.Logger
 }

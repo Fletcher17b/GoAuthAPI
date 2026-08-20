@@ -55,6 +55,13 @@ const (
 )
 */
 
+type EMailLockoutPayload struct {
+	Email            string     `json:"email"`
+	Username         string     `json:"username"`
+	LoggedAttempt_At *time.Time `json:"attempttime"`
+	Location         string     `json:"attemptlocation"`
+}
+
 func NewService(
 	users users.Repository,
 	refreshRepo auth.RefreshTokenRepository,
@@ -265,7 +272,7 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 		EventType:   models.EmailVerificationRequested,
 		Payload:     emailoutboxPayloadJson,
 		Status:      models.StatusPending,
-		NextRetryAt: now,
+		NextRetryAt: now, // nts TODO: why is this here???
 		CreatedAt:   now,
 	}
 
@@ -402,6 +409,16 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	return s.mailer.SendVerificationEmail(user.Email, rawToken)
 }
 
+/*
+	nts todo: write Lockout trigger logic
+			  also send email notifying loggin
+			  also IP catching to send the email correctly:
+			  	"Hey user we detected a loggin from {IP} at {time}
+				 We wanted to confirm it was you,
+				 if it wasnt reset your password here {url}
+				"
+*/
+
 func (s *Service) Login(ctx context.Context, email, password string) (string, string, string, error) {
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil || user == nil || user.PasswordHash == nil {
@@ -416,6 +433,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 			return "", "", "", fmt.Errorf("login failed: %w", ErrEmailNotVerified)
 		}
 	*/
+
+	if user.LockedAt != nil {
+		return "", "", "", ErrUserLockedout
+	}
 
 	access, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
 	if err != nil {
@@ -549,6 +570,142 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
 	return s.refreshRepo.RevokeAllForUser(ctx, userID)
+}
+
+/*
+requires a JWT session and a user
+
+implement IP picking and email send
+*/
+
+func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest) error {
+
+	/* Add here JWT functionality */
+
+	user, err := s.users.FindByEmail(ctx, req.Email)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInvalidCredentials
+		}
+		return err
+	}
+
+	if err := crypto.ComparePassword(*user.PasswordHash, req.OldPassword); err != nil {
+		return ErrInvalidCredentials
+	}
+
+	hashedpassword, err := crypto.HashPassword(req.NewPassword)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	err = s.users.ChangePasword(ctx, tx, user.ID, hashedpassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInvalidCredentials
+		}
+		return err
+	}
+
+	outboxPayload, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	outboxEvent_createID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	newoutboxevent := &models.OutboxEvent{
+		ID:          outboxEvent_createID,
+		EventType:   models.EmailUserLogin,
+		Payload:     outboxPayload,
+		Status:      models.StatusPending,
+		CreatedAt:   now,
+		NextRetryAt: now.Add(time.Minute * 5),
+	}
+
+	err = s.outboxrepo.CreateTx(ctx, tx, newoutboxevent)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		// nts: TODO: add logger here
+		println("db error: ", err.Error())
+		return nil
+	}
+	return nil
+
+}
+
+func (s *Service) RequestResetPassword(ctx context.Context, email string) error {
+	user, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInvalidCredentials
+		}
+		return err
+	}
+
+	outboxEvent_ID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	rawpayload, err := json.Marshal(user.Email)
+	if err != nil {
+		return err
+	}
+
+	newoutbox := &models.OutboxEvent{
+		ID:          outboxEvent_ID,
+		EventType:   models.PasswordResetRequested,
+		Status:      models.StatusPending,
+		Payload:     rawpayload,
+		CreatedAt:   now,
+		NextRetryAt: now.Add(time.Minute * 5),
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	err = s.outboxrepo.CreateTx(ctx, tx, newoutbox)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		// nts: TODO: add logger here
+		println("db error: ", err.Error())
+		return nil
+	}
+
+	return nil
+}
+
+func (s *Service) ResetPassword(ctx context.Context, email string) {
+
 }
 
 // Helpers

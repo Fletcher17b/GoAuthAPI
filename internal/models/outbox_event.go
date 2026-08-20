@@ -24,6 +24,8 @@ const (
 	UserUpdated EventType = "user.updated"
 
 	EmailVerificationRequested EventType = "email.verification.requested"
+	EmailUserLockedout         EventType = "email.reset.password"
+	EmailUserLogin             EventType = "email.user.login"
 	PasswordResetRequested     EventType = "password.reset.requested"
 )
 

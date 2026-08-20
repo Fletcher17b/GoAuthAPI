@@ -18,6 +18,7 @@ import (
 	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"
@@ -64,11 +65,11 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 		PrivateKey:  priv,
 		PublicKey:   &priv.PublicKey,
 		TokenSecret: "test-token-secret",
-		OutboxRepo:  outbox.NewOutboxRepoAuxiliary("postgres", db),
+		OutboxRepo:  outbox.NewOutboxRepo("postgres", db),
 		Logger:      logger,
 	}
 	/*nts: TODO: Wire this up */
-	r := config.InitRouter(&config.Config{}, &priv.PublicKey, logger, func(r chi.Router) {
+	r := config.InitRouter(&config.Config{}, &priv.PublicKey, logger, tenants.NewTenantRepo("postgres", db), func(r chi.Router) {
 		auth.RegisterRoutes(a, r, db, "")
 	})
 

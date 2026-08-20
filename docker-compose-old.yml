@@ -1,5 +1,7 @@
-services:
+# Older docker compose with all included services and exposed :8081
+# Designed to not use an nginx service, direct localhost:8081
 
+services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -29,7 +31,16 @@ services:
     networks:
       - backend
 
-    mem_limit: 2g
+  rabbitmq:
+      build:
+        context: .
+        dockerfile: Dockerfile.RabbitMQ
+      ports:
+        - "5672:5672"
+        - "15672:15672"
+        - "15692:15692"
+      networks:
+      - backend
 
   mailservice:
     build:
@@ -38,15 +49,15 @@ services:
     restart: unless-stopped
     env_file:
       - .env.mailservice
+    depends_on:
+      - rabbitmq
     networks:
       - backend
-      - rabbitmq-network
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-    mem_limit: 1g
 
   authapi:
     build:
@@ -54,14 +65,15 @@ services:
       dockerfile: Dockerfile
     image: authapi:latest
     restart: on-failure
-    expose:
-      - "8081"
+    ports:
+      - "8081:8081"
     env_file:
       - .env.compose
     volumes:
       - ./creds:/app/creds:ro
     depends_on:
       - db
+      - rabbitmq
     logging:
       driver: json-file
       options:
@@ -70,14 +82,9 @@ services:
     networks:
       - backend
       - api-gateway
-      - rabbitmq-network
     secrets:
       - authapi_private_key
       - authapi_public_key
-    mem_limit: 1g
-
-
-
 
 secrets:
   authapi_private_key:
@@ -93,11 +100,3 @@ networks:
   backend:
     name: authapi-compose-backend
     driver: bridge
-  api-gateway:
-    name: api-gateway
-    driver: bridge
-    external: true
-  rabbitmq-network:
-    name: rabbitmq-network
-    driver: bridge
-    external: true

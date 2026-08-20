@@ -120,3 +120,16 @@ func (r *refreshPostgresRepo) RevokeAllForFamily(ctx context.Context, exec dbtx.
 	)
 	return err
 }
+
+func (r *refreshPostgresRepo) CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error {
+	_, err := exec.ExecContext(ctx,
+		`
+		INSERT INTO password_reset_tokens (
+			token_id, user_id, token_hash, expires_at,
+			created_at,
+		) VALUES ($1, $2, $3, $4, $5`,
+		rtkn.ID, rtkn.UserID, rtkn.TokenHash, rtkn.ExpiresAt, rtkn.CreatedAt,
+	)
+
+	return err
+}

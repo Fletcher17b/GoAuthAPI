@@ -16,6 +16,7 @@ type RefreshTokenRepository interface {
 	Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error
 	RevokeAllForUser(ctx context.Context, userID uuid.UUID) error
 	RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, familyID uuid.UUID) error
+	CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error
 }
 
 func nullableUUID(id uuid.UUID) *uuid.UUID {

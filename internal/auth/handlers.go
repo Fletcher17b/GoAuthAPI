@@ -241,12 +241,12 @@ func verifyEmailHandler(logger *slog.Logger, s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rawToken := r.URL.Query().Get("t")
 		if rawToken == "" {
-			http.Error(w, "missing token", http.StatusBadRequest)
+			respondJSONError(w, ErrMissingToken)
 			return
 		}
 
 		if err := s.VerifyEmail(r.Context(), rawToken); err != nil {
-			respondTextError(w, err)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -257,6 +257,16 @@ func verifyEmailHandler(logger *slog.Logger, s *Service) http.HandlerFunc {
 		}
 	}
 }
+
+/*
+	nts TODO: we need to refactor this shit, and its service:
+	gave a 204 on:
+	{
+    	"email": "oiramgrillol.2@gmail.com",
+    	"username": "Mairo",
+    	"password": "supersecret1234"
+	}
+*/
 
 // resendVerificationHandler godoc
 // @Summary      Resend verification email
@@ -291,7 +301,17 @@ func resendVerificationHandler(s *Service) http.HandlerFunc {
 	}
 }
 
-// nts TODO: loginhandler missing its Swagger info
+// loginHandler godoc
+// @Summary      Login
+// @Description  Authenticates a user with their email and password and returns access and refresh tokens.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body LoginRequest true "Login credentials"
+// @Success      200 {object} LoginResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Router       /login [post]
 func loginHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -362,7 +382,7 @@ func refreshHandler(s *Service) http.HandlerFunc {
 		}
 
 		if req.RefreshToken == "" {
-			http.Error(w, "refresh_token required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "refresh token required"})
 			return
 		}
 
@@ -446,6 +466,84 @@ func revokeAllHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+type ChangePasswordRequest struct {
+	Email       string `json:"email"`
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+	NewConfirm  string `json:"new_confirm"`
+}
+
+func changePasswordHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var req ChangePasswordRequest
+
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
+
+		if req.NewPassword != req.NewConfirm {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrPasswordsNotMatch.Error(),
+			})
+			return
+		}
+
+		err := s.ChangePasword(r.Context(), req)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+
+	}
+}
+
+type SendPasswordResetEmailRequest struct {
+	Email string `json:"email"`
+}
+
+func sendResetPasswordEmailHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var req SendPasswordResetEmailRequest
+
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
+
+	}
+}
+
+func resetPasswordHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+	}
+}
+
 // meHandler godoc
 // @Summary      Get current user
 // @Description  Returns information about the authenticated user. Internal use
@@ -521,29 +619,41 @@ func RegisterRoutes(
 	/* nts: this look fucking ugly use the fucking struct */
 
 	service := NewService(
-		app.UserRepo, app.RefreshRepo, app.EmailRepo,
-		app.Mailer, app.PrivateKey, app.TokenSecret,
-		app.OutboxRepo, db, app_url,
+		app.UserRepo,
+		app.RefreshRepo,
+		app.EmailRepo,
+		app.Mailer,
+		app.PrivateKey,
+		app.TokenSecret,
+		app.OutboxRepo,
+		db,
+		app_url,
 	)
 
-	r.Post("/register", registerHandler(service))
-	r.Post("/login", loginHandler(service))
-	r.Post("/refresh", refreshHandler(service))
-	r.Post("/logout", logoutHandler(service))
-	r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
-	r.Post("/resend-verification", resendVerificationHandler(service))
-	r.Post("/signup", signupHandler(service))
-	r.Get("/health", healthhander(app.Logger, db))
-	r.Get("/swagger/*", httpSwagger.WrapHandler)
-	/* Todo:
-	- change URLs to standard
-	- remeber wtf does this mean???
-	- I think it was adding auth/v1/
-	*/
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/register", registerHandler(service))
+		r.Post("/signup", signupHandler(service))
+		r.Post("/login", loginHandler(service))
+		r.Post("/refresh", refreshHandler(service))
+		r.Post("/logout", logoutHandler(service))
 
-	r.Group(func(r chi.Router) {
-		r.Use(JWTMiddleware(app.PublicKey))
-		r.Get("/me", meHandler())
-		r.Post("/revoke-all", revokeAllHandler(service))
+		r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
+		r.Post("/resend-verification", resendVerificationHandler(service))
+
+		/*  Two endpoints one to request and one to verify
+		nts: TODO: group this two into better URL paths
+		*/
+		r.Post("/password-change", changePasswordHandler(service))
+		r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
+		r.Post("/reset-password", resetPasswordHandler(service))
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTMiddleware(app.PublicKey))
+			r.Get("/me", meHandler())
+			r.Post("/revoke-all", revokeAllHandler(service))
+		})
+
+		r.Get("/health", healthhander(app.Logger, db))
+		r.Get("/swagger/*", httpSwagger.WrapHandler)
 	})
 }

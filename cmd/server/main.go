@@ -22,6 +22,7 @@ import (
 	"AuthAPI/main/internal/auth/logger"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/broker"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
@@ -58,6 +59,8 @@ func main() {
 		panic(err)
 	}
 
+	/* tenant_repo := tenants. */
+
 	app := &app.App{
 		UserRepo:    users.NewUserRepo(cfg.Database.Driver, database),
 		RefreshRepo: refresh.NewRefreshRepo(cfg.Database.Driver, database),
@@ -66,7 +69,8 @@ func main() {
 		PrivateKey:  priv,
 		PublicKey:   pub,
 		TokenSecret: tokenSecret,
-		OutboxRepo:  outbox.NewOutboxRepoAuxiliary(cfg.Database.Driver, database),
+		OutboxRepo:  outbox.NewOutboxRepo(cfg.Database.Driver, database),
+		TenantRepo:  tenants.NewTenantRepo(cfg.Database.Driver, database),
 		Logger:      logger,
 	}
 
@@ -96,7 +100,7 @@ func main() {
 	/* nts: TODO: rewire the router initiation to pass on Service instead of creating it within the router,
 	also think of passing cfg to the service router for a more elegant way of delivering APP_URL */
 
-	r := config.InitRouter(cfg, pub, logger, func(r chi.Router) {
+	r := config.InitRouter(cfg, pub, logger, app.TenantRepo, func(r chi.Router) {
 		auth.RegisterRoutes(*app, r, database, cfg.AppBaseURL)
 
 	})

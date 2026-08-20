@@ -115,8 +115,8 @@ func withOutboxTx(t *testing.T, fn func(ctx context.Context, tx *sql.Tx, repo *o
 	fn(ctx, tx, repo)
 }
 
-// ---------- NewOutboxRepoAuxiliary ----------
-func TestNewOutboxRepoAuxiliary(t *testing.T) {
+// ---------- NewOutboxRepo ----------
+func TestNewOutboxRepo(t *testing.T) {
 	t.Run("sqlite driver panics (unsupported)", func(t *testing.T) {
 		db := requirePostgres(t) // any *sql.DB works, sqlite branch panics before using it
 
@@ -126,13 +126,13 @@ func TestNewOutboxRepoAuxiliary(t *testing.T) {
 			}
 		}()
 
-		NewOutboxRepoAuxiliary("sqlite", db)
+		NewOutboxRepo("sqlite", db)
 	})
 
 	t.Run("postgres driver returns a working repo", func(t *testing.T) {
 		db := requirePostgres(t)
 
-		repo := NewOutboxRepoAuxiliary("postgres", db)
+		repo := NewOutboxRepo("postgres", db)
 		if repo == nil {
 			t.Fatal("expected non-nil repo for postgres driver")
 		}
@@ -147,7 +147,7 @@ func TestNewOutboxRepoAuxiliary(t *testing.T) {
 			}
 		}()
 
-		NewOutboxRepoAuxiliary("mongodb", db)
+		NewOutboxRepo("mongodb", db)
 	})
 }
 

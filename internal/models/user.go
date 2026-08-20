@@ -13,6 +13,7 @@ type User struct {
 	PasswordHash  *string
 	EmailVerified bool
 	IsActive      bool
+	LockedAt      *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

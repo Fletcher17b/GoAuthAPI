@@ -72,7 +72,7 @@ func newServiceTestSetup(t *testing.T) (*auth.Service, *sql.DB, *fakeMailer) {
 	userRepo := users.NewUserRepo("postgres", db)
 	refreshRepo := refresh.NewPostgresRefreshRepo(db)
 	emailVerifyRepo := mail.NewEmailVerificationRepo("postgres", db)
-	outboxRepo := outbox.NewOutboxRepoAuxiliary("postgres", db)
+	outboxRepo := outbox.NewOutboxRepo("postgres", db)
 	mailer := newFakeMailer()
 
 	/* nts: TODO: wire this up */

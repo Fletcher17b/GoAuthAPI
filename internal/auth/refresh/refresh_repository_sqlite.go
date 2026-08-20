@@ -120,3 +120,7 @@ func (r *refreshRepo) RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, fa
 	)
 	return err
 }
+
+func (r *refreshRepo) CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error {
+	return nil
+}

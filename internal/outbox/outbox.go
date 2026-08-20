@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func NewOutboxRepoAuxiliary(driver string, db *sql.DB) OutboxRepo {
+func NewOutboxRepo(driver string, db *sql.DB) OutboxRepo {
 	switch driver {
 	case "sqlite":
 		panic("Sqlite no support for Outbox Events")
