@@ -48,7 +48,7 @@ func GenerateClientID() string {
 }
 
 // nts TODO: document this shit, familyID is the session identifier, clientID is kinda useless rn but half the shit usses it
-func GenerateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
+func GenerateRefreshToken(userID, familyID, parentToken, tenantID uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -68,6 +68,7 @@ func GenerateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, sec
 		ID:          rtid,
 		UserID:      userID,
 		ClientID:    clientID,
+		TenantID:    tenantID,
 		TokenHash:   hash,
 		FamilyID:    familyID,
 		ParentToken: parentToken,
@@ -125,6 +126,30 @@ func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *m
 		UserID:    userID,
 		TokenHash: hash,
 		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}, nil
+}
+
+func GeneratePasswordResetToken(userID, tenantID uuid.UUID, secret string) (string, *models.PasswordResetToken, error) {
+	raw := make([]byte, 32)
+	rand.Read(raw)
+
+	plain := base64.RawURLEncoding.EncodeToString(raw)
+	hash := crypto.HashToken(plain, secret)
+
+	now := time.Now()
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", nil, err
+	}
+
+	return plain, &models.PasswordResetToken{
+		ID:        id,
+		UserID:    userID,
+		TenantID:  tenantID,
+		TokenHash: hash,
+		ExpiresAt: now.Add(1 * time.Hour),
 		CreatedAt: now,
 	}, nil
 }

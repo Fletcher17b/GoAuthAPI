@@ -211,12 +211,18 @@ func signupHandler(s *Service) http.HandlerFunc {
 			})
 			return
 		}
+		tenant, success := TenantFromContext(r.Context())
+		if !success {
+			/* nts: TODO: Write response when tenant not found */
+			return
+		}
 
 		resp, err := s.SignupService(
 			r.Context(),
 			req.Email,
 			req.Username,
 			req.Password,
+			tenant.ID,
 		)
 		if err != nil {
 			respondJSONError(w, err)
@@ -301,13 +307,15 @@ func resendVerificationHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+/* Login needs tenant, to decide wich enail of which service it logs unto */
+
 // loginHandler godoc
 // @Summary      Login
 // @Description  Authenticates a user with their email and password and returns access and refresh tokens.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
-// @Param        request body LoginRequest true "Login credentials"
+// @Param X-Tenant header string true "Tenant ID"
 // @Success      200 {object} LoginResponse
 // @Failure      400 {object} ErrorResponse
 // @Failure      401 {object} ErrorResponse
@@ -392,12 +400,15 @@ func refreshHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		errr := json.NewEncoder(w).Encode(RefreshResponse{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		resp := RefreshResponse{
 			AccessToken:      accessToken,  // #nosec G117
 			RefreshToken:     refreshToken, // #nosec G117
 			RefreshExpiresAt: expiresAt.UTC().Format(time.RFC3339),
-		})
+		}
 
+		errr := json.NewEncoder(w).Encode(resp)
 		if errr != nil {
 			http.Error(w, "Something went wrong", http.StatusInternalServerError)
 			return
@@ -473,6 +484,19 @@ type ChangePasswordRequest struct {
 	NewConfirm  string `json:"new_confirm"`
 }
 
+// changePasswordHandler godoc
+// @Summary      Change password
+// @Description  Changes the user's password after validating the current email and password confirmation.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  ChangePasswordRequest  true  "Change password request"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Failure      401  {object}  ErrorResponse
+// @Router       /password/change [post]
 func changePasswordHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -500,7 +524,15 @@ func changePasswordHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		err := s.ChangePasword(r.Context(), req)
+		if req.OldPassword == req.NewPassword {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrUnchangedPassword.Error(),
+			})
+			return
+		}
+		request_ip := ClientIP(r)
+
+		err := s.ChangePasword(r.Context(), req, request_ip)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: err.Error(),
@@ -515,6 +547,17 @@ type SendPasswordResetEmailRequest struct {
 	Email string `json:"email"`
 }
 
+// sendResetPasswordEmailHandler godoc
+// @Summary      Request password reset
+// @Description  Sends a password reset email to the specified email address.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  SendPasswordResetEmailRequest  true  "Password reset request"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Router       /password/reset/request [post]
 func sendResetPasswordEmailHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -534,13 +577,75 @@ func sendResetPasswordEmailHandler(s *Service) http.HandlerFunc {
 			})
 			return
 		}
+		request_ip := ClientIP(r)
+		if err := s.RequestResetPassword(r.Context(), req.Email, request_ip); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
 
 	}
 }
 
+type ResetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+// resetPasswordHandler godoc
+// @Summary      Reset password
+// @Description  Resets a user's password using a valid password reset token.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  ResetPasswordRequest  true  "Password reset request"
+// @Success      204
+// @Failure      400  {object}  ErrorResponse
+// @Router       /password/reset [post]
 func resetPasswordHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
 
+		var req ResetPasswordRequest
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if req.NewPassword == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "new_password is required",
+			})
+			return
+		}
+
+		token := r.URL.Query().Get("t")
+		if token == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "reset token is required",
+			})
+			return
+		}
+
+		requestIP := ClientIP(r)
+
+		if err := s.ResetPassword(
+			r.Context(),
+			token,
+			req.NewPassword,
+			requestIP,
+		); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid or expired reset token",
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -621,6 +726,7 @@ func RegisterRoutes(
 	service := NewService(
 		app.UserRepo,
 		app.RefreshRepo,
+		app.TenantRepo,
 		app.EmailRepo,
 		app.Mailer,
 		app.PrivateKey,
@@ -631,21 +737,25 @@ func RegisterRoutes(
 	)
 
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", registerHandler(service))
-		r.Post("/signup", signupHandler(service))
-		r.Post("/login", loginHandler(service))
-		r.Post("/refresh", refreshHandler(service))
-		r.Post("/logout", logoutHandler(service))
-
-		r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
-		r.Post("/resend-verification", resendVerificationHandler(service))
 
 		/*  Two endpoints one to request and one to verify
 		nts: TODO: group this two into better URL paths
 		*/
-		r.Post("/password-change", changePasswordHandler(service))
-		r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
-		r.Post("/reset-password", resetPasswordHandler(service))
+		r.Group(func(r chi.Router) {
+			r.Use(TenantMiddleware(app.TenantRepo))
+			r.Post("/password-change", changePasswordHandler(service))
+			r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
+			r.Post("/reset-password", resetPasswordHandler(service))
+
+			r.Post("/register", registerHandler(service))
+			r.Post("/signup", signupHandler(service))
+			r.Post("/login", loginHandler(service))
+			r.Post("/refresh", refreshHandler(service))
+			r.Post("/logout", logoutHandler(service))
+
+			r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
+			r.Post("/resend-verification", resendVerificationHandler(service))
+		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(JWTMiddleware(app.PublicKey))

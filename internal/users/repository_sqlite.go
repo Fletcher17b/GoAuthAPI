@@ -46,7 +46,7 @@ func (r *sqliteRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.Use
 	return err
 }
 
-func (r *sqliteRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+func (r *sqliteRepo) FindByEmail(ctx context.Context, email string, tenant uuid.UUID) (*models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT user_id, email, username, password_hash,
 		       email_verified, is_active, created_at, updated_at
@@ -128,6 +128,6 @@ func (r *sqliteRepo) LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.
 	return err
 }
 
-func (r *sqliteRepo) ChangePasword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error {
+func (r *sqliteRepo) ChangePassword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error {
 	return nil
 }

@@ -28,8 +28,7 @@ func InitRouter(
 		})
 	})
 
-	r.Use(auth.TenantMiddleware(tenantrepo))
-
+	//r.Use(auth.TenantMiddleware(tenantrepo))
 	corsOptions := LoadCors(*cfg)
 	r.Use(corsOptions.Handler)
 	r.Use(auth.RequestIDMiddleware)

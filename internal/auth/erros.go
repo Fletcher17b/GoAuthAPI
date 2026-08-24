@@ -17,8 +17,12 @@ var (
 	ErrEmailAlreadyExists       = errors.New("email already exists")
 	ErrInvalidVerificationToken = errors.New("invalid or expired verification token")
 	ErrShortPassword            = errors.New("password must be greater than 3 characters")
-	ErrUnchangedPassword        = errors.New("password must be different")
-	ErrPasswordsNotMatch        = errors.New("passwords do coincide")
+	ErrUnchangedPassword        = errors.New("new password must be different")
+	ErrPasswordsNotMatch        = errors.New("passwords do not coincide")
+
+	ErrTenantHeaderMissing = errors.New("missing tenant header")
+	ErrTenantNotFound      = errors.New("tenant not found")
+	ErrTenantInactive      = errors.New("tenant is not active")
 )
 
 func mapAuthError(err error) (int, string) {

@@ -1,11 +1,17 @@
 // @title           AuthAPI
-// @version         1.2
+// @version         1.3
 // @description     REST API documentation
 // @BasePath        /
 
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
+
+// @securityDefinitions.apikey TenantAuth
+// @in header
+// @name X-Tenant
+
+// @security TenantAuth
 
 package main
 

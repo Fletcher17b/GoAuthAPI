@@ -9,6 +9,7 @@ import (
 type PasswordResetToken struct {
 	ID        uuid.UUID  `db:"token_id"`
 	UserID    uuid.UUID  `db:"user_id"`
+	TenantID  uuid.UUID  `db:"tenant_id"`
 	TokenHash string     `db:"token_hash"`
 	ExpiresAt time.Time  `db:"expires_at"`
 	UsedAt    *time.Time `db:"used_at"`

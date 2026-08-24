@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/metrics"
 	auth "AuthAPI/main/internal/auth/refresh"
+	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
 	"AuthAPI/main/internal/outbox"
@@ -33,6 +35,7 @@ type Service struct {
 
 	users       users.Repository
 	refreshRepo auth.RefreshTokenRepository
+	tenantRepo  tenants.TenantRepository
 
 	emailVerifyrepo mail.EmailVerificationRepository
 	mailer          mail.Mailer
@@ -65,6 +68,7 @@ type EMailLockoutPayload struct {
 func NewService(
 	users users.Repository,
 	refreshRepo auth.RefreshTokenRepository,
+	tenantRepo tenants.TenantRepository,
 
 	emailVerifyrepo mail.EmailVerificationRepository,
 	mailer mail.Mailer,
@@ -81,6 +85,7 @@ func NewService(
 		users:           users,
 		refreshRepo:     refreshRepo,
 		emailVerifyrepo: emailVerifyrepo,
+		tenantRepo:      tenantRepo,
 		mailer:          mailer,
 		privateKey:      privateKey,
 		tokenSecret:     tokenSecret,
@@ -163,7 +168,7 @@ type SignUpData struct {
 
 // signupDataBuilder is a helper function that constructs and fills out the models used in the operation.
 // Returns (User, EmailVerificationToken, RefreshToken, OutboxEvent, UserInfo, plainRefreshToken, error) models
-func (s *Service) signupDataBuilder(email, username, password, clientID string) (
+func (s *Service) signupDataBuilder(email, username, password, clientID string, tenant uuid.UUID) (
 	*models.User,
 	*models.EmailVerificationToken,
 	*models.RefreshToken,
@@ -184,10 +189,12 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", err
 	}
+
 	user := &models.User{
 		ID:           userID,
 		Email:        email,
 		PasswordHash: &hash,
+		Tenant_ID:    tenant,
 		IsActive:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -212,7 +219,7 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 		return nil, nil, nil, nil, nil, nil, "", err
 	}
 
-	plaintoken, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	plaintoken, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, tenant, clientID, s.tokenSecret)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", err
 	}
@@ -251,6 +258,8 @@ func (s *Service) signupDataBuilder(email, username, password, clientID string) 
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", err
 	}
+
+	/* nts TODO email verification is never created/stored in database */
 
 	verificationurl := VerifyEmailURLConstructor(s.app_url, emailPlainToken)
 
@@ -332,10 +341,10 @@ func (s *Service) signupResponseBuilder(user *models.User, userinfo UserInfo, re
 	}, nil
 }
 
-func (s *Service) SignupService(ctx context.Context, email, username, password string) (*SignupResponseRefactor, error) {
+func (s *Service) SignupService(ctx context.Context, email, username, password string, tenant uuid.UUID) (*SignupResponseRefactor, error) {
 
 	clientID := GenerateClientID()
-	user, emailVerifyToken, refreshToken, outboxEvent, outboxEvent_sendmail, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID)
+	user, emailVerifyToken, refreshToken, outboxEvent, outboxEvent_sendmail, response_userinfo, plaintoken, err := s.signupDataBuilder(email, username, password, clientID, tenant)
 	if err != nil {
 		/* nts */
 		return nil, err
@@ -373,7 +382,11 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 }
 
 func (s *Service) ResendVerification(ctx context.Context, email string) error {
-	user, err := s.users.FindByEmail(ctx, email)
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
+	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
 	if err != nil {
 		return nil
 	}
@@ -417,10 +430,16 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 				 We wanted to confirm it was you,
 				 if it wasnt reset your password here {url}
 				"
+			  also when doing a login it should revoke the previous refresh token
 */
 
 func (s *Service) Login(ctx context.Context, email, password string) (string, string, string, error) {
-	user, err := s.users.FindByEmail(ctx, email)
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return "", "", "", ErrTenantNotFound
+	}
+
+	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
 	if err != nil || user == nil || user.PasswordHash == nil {
 		return "", "", "", ErrInvalidCredentials
 	}
@@ -450,7 +469,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 		return "", "", "", err
 	}
 	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
-	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, clientID, s.tokenSecret)
+	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, user.Tenant_ID, clientID, s.tokenSecret)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -464,8 +483,16 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, st
 }
 
 func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string, *models.RefreshToken, error) {
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return "", nil, ErrTenantNotFound
+	}
+
+	println("token recieved: ", refreshToken)
 
 	hash := crypto.HashToken(refreshToken, s.tokenSecret)
+
+	println("tkr hash: ", hash)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -475,7 +502,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		_ = tx.Rollback()
 	}()
 
-	old, err := s.refreshRepo.FindbyHash(ctx, tx, hash)
+	old, err := s.refreshRepo.FindbyHash(ctx, tx, hash, tenant.ID)
 	if err != nil {
 		return "", nil, ErrInvalidToken
 	}
@@ -485,12 +512,12 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 	}
 
 	if old.RevokedAt != nil {
-		_ = s.refreshRepo.RevokeAllForFamily(ctx, tx, old.FamilyID)
+		_ = s.refreshRepo.RevokeAllForFamily(ctx, tx, old.FamilyID, tenant.ID)
 		_ = tx.Commit()
 		return "", nil, ErrRefreshReuse
 	}
 
-	if err := s.refreshRepo.Revoke(ctx, tx, old.ID); err != nil {
+	if err := s.refreshRepo.Revoke(ctx, tx, old.ID, tenant.ID); err != nil {
 		return "", nil, err
 	}
 
@@ -498,6 +525,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		old.UserID,
 		old.FamilyID,
 		old.ID,
+		tenant.ID,
 		old.ClientID,
 		s.tokenSecret,
 	)
@@ -542,9 +570,15 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 }
 
 func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
+
 	hash := crypto.HashToken(refreshToken, s.tokenSecret)
 
-	rt, err := s.refreshRepo.FindValidByHash(ctx, hash)
+	rt, err := s.refreshRepo.FindValidByHash(ctx, hash, tenant.ID)
 	if err != nil {
 		return ErrInvalidToken
 	}
@@ -558,7 +592,7 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 		_ = tx.Rollback()
 	}()
 
-	if err := s.refreshRepo.Revoke(ctx, tx, rt.ID); err != nil {
+	if err := s.refreshRepo.Revoke(ctx, tx, rt.ID, tenant.ID); err != nil {
 		return err
 	}
 	err = tx.Commit()
@@ -569,7 +603,11 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 }
 
 func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
-	return s.refreshRepo.RevokeAllForUser(ctx, userID)
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
+	return s.refreshRepo.RevokeAllForUser(ctx, userID, tenant.ID)
 }
 
 /*
@@ -578,13 +616,30 @@ requires a JWT session and a user
 implement IP picking and email send
 */
 
-func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest) error {
+type PasswordChangePayload struct {
+	Email  string `json:"email"`
+	Tenant string `json:"tenant"`
+	IP     string `json:"ip"`
+}
+
+/*
+Change password:
+
+	Used when user wants to change its password manualy
+	User knows its password and account isnt stolen
+*/
+func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest, ip string) error {
+
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
 
 	/* Add here JWT functionality */
 
-	user, err := s.users.FindByEmail(ctx, req.Email)
+	user, err := s.users.FindByEmail(ctx, req.Email, tenant.ID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrInvalidCredentials
 		}
 		return err
@@ -607,15 +662,23 @@ func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest) 
 		_ = tx.Rollback()
 	}()
 
-	err = s.users.ChangePasword(ctx, tx, user.ID, hashedpassword)
+	err = s.users.ChangePassword(ctx, tx, user.ID, hashedpassword)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrInvalidCredentials
 		}
 		return err
 	}
 
-	outboxPayload, err := json.Marshal(req)
+	var payload PasswordChangePayload
+	payload.Email = req.Email
+	payload.IP = ip
+	tenant_model, ok := TenantFromContext(ctx)
+	if ok {
+		payload.Tenant = tenant_model.Name
+	}
+
+	outboxPayload, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -629,7 +692,7 @@ func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest) 
 
 	newoutboxevent := &models.OutboxEvent{
 		ID:          outboxEvent_createID,
-		EventType:   models.EmailUserLogin,
+		EventType:   models.PasswordResetSuccess,
 		Payload:     outboxPayload,
 		Status:      models.StatusPending,
 		CreatedAt:   now,
@@ -645,18 +708,59 @@ func (s *Service) ChangePasword(ctx context.Context, req ChangePasswordRequest) 
 	if err != nil {
 		// nts: TODO: add logger here
 		println("db error: ", err.Error())
-		return nil
+		return err
 	}
 	return nil
 
 }
 
-func (s *Service) RequestResetPassword(ctx context.Context, email string) error {
-	user, err := s.users.FindByEmail(ctx, email)
+type PasswordResetRequestedPayload struct {
+	Email     string `json:"email"`
+	ResetLink string `json:"reset_link"`
+	IP        string `json:"ip"`
+	Tenant    string `json:"tenant"`
+}
+
+type PasswordResetSuccessPayload struct {
+	Email  string `json:"email"`
+	IP     string `json:"ip"`
+	Tenant string `json:"tenant"`
+}
+
+/*
+nts: TODO: rn it creates a new token and done, instead it should create and then invalidate the previous one
+*/
+func (s *Service) RequestResetPassword(ctx context.Context, email string, ip string) error {
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
+	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrInvalidCredentials
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
 		}
+		return err
+	}
+
+	plainToken, resetModel, err := GeneratePasswordResetToken(user.ID, tenant.ID, s.tokenSecret)
+
+	println("plain: ", plainToken)
+	println("model: ", resetModel)
+
+	if err != nil {
+		return err
+	}
+
+	resetLink := s.app_url + "/auth/reset-password?t=" + plainToken
+	println("resetlink: ", resetLink)
+	payload, err := json.Marshal(PasswordResetRequestedPayload{
+		Email:     user.Email,
+		ResetLink: resetLink,
+		IP:        ip,
+		Tenant:    tenant.TenantName,
+	})
+	if err != nil {
 		return err
 	}
 
@@ -667,16 +771,11 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string) error 
 
 	now := time.Now()
 
-	rawpayload, err := json.Marshal(user.Email)
-	if err != nil {
-		return err
-	}
-
 	newoutbox := &models.OutboxEvent{
 		ID:          outboxEvent_ID,
 		EventType:   models.PasswordResetRequested,
 		Status:      models.StatusPending,
-		Payload:     rawpayload,
+		Payload:     payload,
 		CreatedAt:   now,
 		NextRetryAt: now.Add(time.Minute * 5),
 	}
@@ -689,8 +788,11 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string) error 
 		_ = tx.Rollback()
 	}()
 
-	err = s.outboxrepo.CreateTx(ctx, tx, newoutbox)
-	if err != nil {
+	if err := s.refreshRepo.CreateResetTokenTx(ctx, tx, *resetModel); err != nil {
+		return err
+	}
+
+	if err := s.outboxrepo.CreateTx(ctx, tx, newoutbox); err != nil {
 		return err
 	}
 
@@ -704,8 +806,82 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string) error 
 	return nil
 }
 
-func (s *Service) ResetPassword(ctx context.Context, email string) {
+func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPassword string, ip string) error {
+	tenant, ok := TenantFromContext(ctx)
+	if !ok || tenant == nil {
+		return ErrTenantNotFound
+	}
 
+	hash := crypto.HashToken(rawToken, s.tokenSecret)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	resetToken, err := s.refreshRepo.FindValidResetTokenTx(ctx, tx, hash, tenant.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			println("ping")
+			return ErrInvalidToken
+		}
+		return err
+	}
+
+	hashedPassword, err := crypto.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	if err := s.users.ChangePassword(ctx, tx, resetToken.UserID, hashedPassword); err != nil {
+		return err
+	}
+
+	if err := s.refreshRepo.MarkResetTokenUsedTx(ctx, tx, resetToken.ID); err != nil {
+		return err
+	}
+
+	if err := s.refreshRepo.RevokeAllForUser(ctx, resetToken.UserID, tenant.ID); err != nil {
+		return err
+	}
+
+	user, err := s.users.FindByID(ctx, resetToken.UserID)
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(PasswordResetSuccessPayload{
+		Email:  user.Email,
+		IP:     ip,
+		Tenant: tenant.TenantName,
+	})
+	if err != nil {
+		return err
+	}
+
+	outboxEventID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	confirmEvent := &models.OutboxEvent{
+		ID:          outboxEventID,
+		EventType:   models.PasswordResetSuccess,
+		Status:      models.StatusPending,
+		Payload:     payload,
+		CreatedAt:   now,
+		NextRetryAt: now.Add(time.Minute * 5),
+	}
+
+	if err := s.outboxrepo.CreateTx(ctx, tx, confirmEvent); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // Helpers

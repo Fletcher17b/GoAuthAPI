@@ -19,13 +19,7 @@ type ctxKey string
 
 const ContextRequestID ctxKey = "request_id"
 
-const TenantHeader = "X-Tenant-ID"
-
-var (
-	ErrTenantHeaderMissing = errors.New("missing tenant header")
-	ErrTenantNotFound      = errors.New("tenant not found")
-	ErrTenantInactive      = errors.New("tenant is not active")
-)
+const TenantHeader = "X-Tenant"
 
 func RequestIDFromContext(ctx context.Context) string {
 	if id, ok := ctx.Value(ContextRequestID).(string); ok {

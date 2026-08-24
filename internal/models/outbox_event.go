@@ -27,6 +27,7 @@ const (
 	EmailUserLockedout         EventType = "email.reset.password"
 	EmailUserLogin             EventType = "email.user.login"
 	PasswordResetRequested     EventType = "password.reset.requested"
+	PasswordResetSuccess       EventType = "password.reset.success"
 )
 
 type OutboxEvent struct {

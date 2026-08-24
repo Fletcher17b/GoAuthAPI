@@ -3,6 +3,7 @@ package refresh
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"AuthAPI/main/internal/auth/dbtx"
@@ -43,7 +44,7 @@ func (r *refreshRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.Re
 	return err
 }
 
-func (r *refreshRepo) FindbyHash(ctx context.Context, exec dbtx.DBTX, hash string) (*models.RefreshToken, error) {
+func (r *refreshRepo) FindbyHash(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.RefreshToken, error) {
 	var t models.RefreshToken
 	var parent sql.NullString
 	row := exec.QueryRowContext(ctx, `
@@ -65,7 +66,7 @@ func (r *refreshRepo) FindbyHash(ctx context.Context, exec dbtx.DBTX, hash strin
 	return &t, nil
 }
 
-func (r *refreshRepo) FindValidByHash(ctx context.Context, hash string) (*models.RefreshToken, error) {
+func (r *refreshRepo) FindValidByHash(ctx context.Context, hash string, tenant uuid.UUID) (*models.RefreshToken, error) {
 	var t models.RefreshToken
 	var parent sql.NullString
 	row := r.db.QueryRowContext(ctx, `
@@ -89,7 +90,7 @@ func (r *refreshRepo) FindValidByHash(ctx context.Context, hash string) (*models
 	return &t, nil
 }
 
-func (r *refreshRepo) Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error {
+func (r *refreshRepo) Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID, tenant uuid.UUID) error {
 	_, err := exec.ExecContext(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = ?
@@ -99,7 +100,7 @@ func (r *refreshRepo) Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.U
 	return err
 }
 
-func (r *refreshRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
+func (r *refreshRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID, tenant uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = CURRENT_TIMESTAMP
@@ -110,7 +111,7 @@ func (r *refreshRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID) er
 	return err
 }
 
-func (r *refreshRepo) RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, familyID uuid.UUID) error {
+func (r *refreshRepo) RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, familyID uuid.UUID, tenant uuid.UUID) error {
 	_, err := exec.ExecContext(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = CURRENT_TIMESTAMP
@@ -123,4 +124,11 @@ func (r *refreshRepo) RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, fa
 
 func (r *refreshRepo) CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error {
 	return nil
+}
+func (r *refreshRepo) FindValidResetTokenTx(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.PasswordResetToken, error) {
+	return nil, errors.New("password reset is not supported on the sqlite driver")
+}
+
+func (r *refreshRepo) MarkResetTokenUsedTx(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error {
+	return errors.New("password reset is not supported on the sqlite driver")
 }
