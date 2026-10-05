@@ -1,24 +1,32 @@
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    tenant_id UUID NOT NULL,
     username TEXT UNIQUE,
     password_hash TEXT,
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    locked_at TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    updated_at TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT users_perservice_email_unique UNIQUE (tenant_id, email)
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     token_id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
+    tenant_id UUID,
     token_hash TEXT NOT NULL,
     client_id TEXT NOT NULL,
-    family_id UUID  NOT NULL,
+    family_id UUID NOT NULL,
     ptoken_id UUID,
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
+    user_agent TEXT,
+    ip TEXT,
+    last_used_at TIMESTAMPTZ,
     FOREIGN KEY (user_id)
         REFERENCES users(user_id)
         ON DELETE CASCADE
@@ -27,6 +35,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
     token_id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
+    tenant_id UUID,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
@@ -39,10 +48,12 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     token_id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
+    tenant_id UUID,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
     FOREIGN KEY (user_id)
         REFERENCES users(user_id)
         ON DELETE CASCADE
@@ -63,6 +74,7 @@ CREATE TABLE IF NOT EXISTS oauth_identities (
 
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id UUID NOT NULL,
+    tenant_id UUID,
     role TEXT NOT NULL,
     PRIMARY KEY (user_id, role),
     FOREIGN KEY (user_id)
@@ -72,33 +84,80 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 CREATE TABLE IF NOT EXISTS outbox_events (
     id UUID PRIMARY KEY,
-
+    tenant_id UUID, -- find way to wire this to exchanges
     aggregate_type VARCHAR(100) NOT NULL,
     aggregate_id UUID NOT NULL,
-
     event_type VARCHAR(200) NOT NULL,
-
     payload JSONB NOT NULL,
     headers JSONB,
-
-    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'published', 'failed')),
     retry_count INTEGER NOT NULL DEFAULT 0,
-
     next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
     created_at TIMESTAMPTZ NOT NULL,
-
     published_at TIMESTAMPTZ,
+    last_error TEXT,
 
-    last_error TEXT
+    locked_at TIMESTAMPTZ,
+    locked_until TIMESTAMPTZ,
+    locked_by TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_outbox_claimable
+ON outbox_events(status, next_retry_at, locked_until);
+
+CREATE TABLE IF NOT EXISTS tenants (
+    tenant_id UUID PRIMARY KEY,
+    tenant_name TEXT NOT NULL UNIQUE,
+    name TEXT,
+
+    url TEXT NOT NULL,
+    email TEXT NOT NULL,
+    status TEXT NOT NULL,
+    CHECK (status IN ('pending', 'active', 'suspended')),
+
+    public_key TEXT NOT NULL,
+    api_key_hash TEXT NOT NULL,
+    allowed_origins JSONB,
+    
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+/* 
+INSERT INTO tenants (
+    tenant_id,
+    tenant_name,
+    name,
+    url,
+    email,
+    status,
+    public_key,
+    api_key_hash,
+    allowed_origins,
+    created_at,
+    updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'acme',
+    'Acme Inc.',
+    'https://acme.com',
+    'admin@acme.com',
+    'active',
+    'test-public-key',
+    'test-api-key-hash',
+    '["https://acme.com"]'::jsonb,
+    NOW(),
+    NOW()
+); */
 
 CREATE INDEX IF NOT EXISTS idx_users_email
 ON users(email);
 
 CREATE INDEX IF NOT EXISTS idx_refresh_user
 ON refresh_tokens(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_user_device
+    ON refresh_tokens (tenant_id, user_id, client_id);
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
 ON refresh_tokens(token_hash);
@@ -114,6 +173,3 @@ ON password_reset_tokens(token_hash);
 
 CREATE INDEX IF NOT EXISTS idx_oauth_provider_user
 ON oauth_identities(provider, provider_user_id);
-
-CREATE INDEX IF NOT EXISTS idx_outbox_pending
-ON outbox_events(status, next_retry_at);

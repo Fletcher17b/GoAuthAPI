@@ -71,14 +71,37 @@ jobs:
 
           CORS_ALLOWED_ORIGINS="http://localhost:8080,http://localhost:8081,http://127.0.0.1:5500"
 
-          RABBITMQ_URL=""
-          RABBITMQ_EXCHANGE=
+          RABBITMQ_URL="amqp://guest:guest@rabbitmq:5672/"
+          RABBITMQ_EXCHANGE="authexchange"
           EOF
 
-      - name: Start required services with Docker Compose
+          cat > .env.mailservice <<EOF
+          APP_ENV=development
+          LOG_LEVEL=debug
+              
+          SMTP_HOST="${SMTP_HOST}"
+          SMTP_PORT=587
+          SMTP_USER="${SMTP_USER}"
+          SMTP_APP_PASSWORD="${SMTP_APP_PASSWORD}"
+          SMTP_FROM="Auth Service <no-reply@grilloworks.com>"
+              
+          REST_ENDPOINTS="TRUE"
+          APP_BASE_URL="http://localhost:8081"
+              
+          RABBITMQ_IMPLEMENTATION="TRUE"
+          RABBITMQ_URL="amqp://guest:guest@rabbitmq:5672/"
+          RABBITMQ_EXCHANGE="authexchange"
+          EOF
+              
+          chmod 600 .env.compose .env.mailservice
+
+      - name: Configure Docker Compose for CI
+        run: echo "COMPOSE_FILE=docker-compose-ci.yml" >> "$GITHUB_ENV"
+
+      - name: Start required services
         run: |
-          docker compose up -d db rabbitmq
-          docker compose ps
+          docker compose -f docker-compose-ci.yml up -d db rabbitmq redis
+          docker compose -f docker-compose-ci.yml ps
 
       - name: Wait for database to become healthy
         run: |

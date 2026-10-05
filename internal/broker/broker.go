@@ -1,14 +1,12 @@
 package broker
 
-import "context"
+import (
+	"AuthAPI/main/internal/models"
+	"context"
+)
 
 type Broker interface {
-	Publish(
-		ctx context.Context,
-		routingKey string,
-		payload []byte,
-		headers map[string]any,
-	) error
+	Publish(ctx context.Context, envelope models.EventEnvelope) error
 
 	Close() error
 }

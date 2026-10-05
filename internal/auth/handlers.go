@@ -2,8 +2,10 @@ package auth
 
 import (
 	"AuthAPI/main/internal/auth/app"
+	"AuthAPI/main/internal/crypto"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -99,6 +101,15 @@ type SignupResponseRefactor struct {
 
 //////////////////////////////////
 
+var dummyPasswordHash = func() string {
+	h, _ := crypto.HashPassword("timing-equalizer")
+	return h
+}()
+
+func VerifyEmailURLConstructor(BaseURL, token string) string {
+	return fmt.Sprintf("%s/verify-email?t=%s", BaseURL, token)
+}
+
 func writeJSON(
 	w http.ResponseWriter,
 	status int,
@@ -111,16 +122,20 @@ func writeJSON(
 }
 
 func ClientIP(r *http.Request) string {
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	// Whole system should sit behind an API-gateway
+	// So the IP in header should be trustable if
+	// gateway is configured correctly
+	ip := strings.TrimSpace(r.Header.Get("X-Real-IP"))
+
+	if parsed := net.ParseIP(ip); parsed != nil {
+		return parsed.String()
 	}
 
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return xr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
 
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
 }
 
@@ -135,7 +150,7 @@ func ClientIP(r *http.Request) string {
 // @Failure      400 {object} ErrorResponse
 // @Failure      409 {object} ErrorResponse
 // @Router       /register [post]
-func registerHandler(s *Service) http.HandlerFunc {
+func registerHandler(s *Service) http.HandlerFunc { //nolint:unused
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Email    string `json:"email"`
@@ -195,14 +210,23 @@ func signupHandler(s *Service) http.HandlerFunc {
 			})
 			return
 		}
+		tenant, success := TenantFromContext(r.Context())
+		if !success {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "no tenant header",
+			})
+			return
+		}
 
 		resp, err := s.SignupService(
 			r.Context(),
 			req.Email,
 			req.Username,
 			req.Password,
+			tenant.ID,
 		)
 		if err != nil {
+			println(err.Error())
 			respondJSONError(w, err)
 			return
 		}
@@ -225,12 +249,12 @@ func verifyEmailHandler(logger *slog.Logger, s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rawToken := r.URL.Query().Get("t")
 		if rawToken == "" {
-			http.Error(w, "missing token", http.StatusBadRequest)
+			respondJSONError(w, ErrMissingToken)
 			return
 		}
 
 		if err := s.VerifyEmail(r.Context(), rawToken); err != nil {
-			respondTextError(w, err)
+			respondJSONError(w, err)
 			return
 		}
 
@@ -275,6 +299,19 @@ func resendVerificationHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+/* Login needs tenant, to decide wich enail of which service it logs unto */
+
+// loginHandler godoc
+// @Summary      Login
+// @Description  Authenticates a user with their email and password and returns access and refresh tokens.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param X-Tenant header string true "Tenant ID"
+// @Success      200 {object} LoginResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Router       /login [post]
 func loginHandler(s *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -304,7 +341,8 @@ func loginHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password)
+		r_ip := ClientIP(r)
+		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password, r_ip)
 		if err != nil {
 			respondJSONError(w, err)
 			return
@@ -345,7 +383,7 @@ func refreshHandler(s *Service) http.HandlerFunc {
 		}
 
 		if req.RefreshToken == "" {
-			http.Error(w, "refresh_token required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "refresh token required"})
 			return
 		}
 
@@ -355,12 +393,15 @@ func refreshHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		errr := json.NewEncoder(w).Encode(RefreshResponse{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		resp := RefreshResponse{
 			AccessToken:      accessToken,  // #nosec G117
 			RefreshToken:     refreshToken, // #nosec G117
 			RefreshExpiresAt: expiresAt.UTC().Format(time.RFC3339),
-		})
+		}
 
+		errr := json.NewEncoder(w).Encode(resp) // #nosec G117
 		if errr != nil {
 			http.Error(w, "Something went wrong", http.StatusInternalServerError)
 			return
@@ -429,6 +470,178 @@ func revokeAllHandler(s *Service) http.HandlerFunc {
 	}
 }
 
+type ChangePasswordRequest struct {
+	Email       string `json:"email"`
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+	NewConfirm  string `json:"new_confirm"`
+}
+
+// changePasswordHandler godoc
+// @Summary      Change password
+// @Description  Changes the user's password after validating the current email and password confirmation.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  ChangePasswordRequest  true  "Change password request"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Failure      401  {object}  ErrorResponse
+// @Router       /password/change [post]
+func changePasswordHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var req ChangePasswordRequest
+
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
+
+		if req.NewPassword != req.NewConfirm {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrPasswordsNotMatch.Error(),
+			})
+			return
+		}
+
+		if req.OldPassword == req.NewPassword {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrUnchangedPassword.Error(),
+			})
+			return
+		}
+		request_ip := ClientIP(r)
+
+		err := s.ChangePassword(r.Context(), req, request_ip)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+
+	}
+}
+
+type SendPasswordResetEmailRequest struct {
+	Email string `json:"email"`
+}
+
+// sendResetPasswordEmailHandler godoc
+// @Summary      Request password reset
+// @Description  Sends a password reset email to the specified email address.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  SendPasswordResetEmailRequest  true  "Password reset request"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Router       /password/reset/request [post]
+func sendResetPasswordEmailHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var req SendPasswordResetEmailRequest
+
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if err := validateEmail(req.Email); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
+		request_ip := ClientIP(r)
+		if err := s.RequestResetPassword(r.Context(), req.Email, request_ip); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: ErrInvalidEmail.Error(),
+			})
+			return
+		}
+
+	}
+}
+
+type ResetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+// resetPasswordHandler godoc
+// @Summary      Reset password
+// @Description  Resets a user's password using a valid password reset token.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param X-Tenant header string true "Tenant ID"
+// @Param        request  body  ResetPasswordRequest  true  "Password reset request"
+// @Success      204
+// @Failure      400  {object}  ErrorResponse
+// @Router       /password/reset [post]
+func resetPasswordHandler(s *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var req ResetPasswordRequest
+		if err := decoder.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
+			return
+		}
+
+		if req.NewPassword == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "new_password is required",
+			})
+			return
+		}
+
+		token := r.URL.Query().Get("t")
+		if token == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "reset token is required",
+			})
+			return
+		}
+
+		requestIP := ClientIP(r)
+
+		if err := s.ResetPassword(
+			r.Context(),
+			token,
+			req.NewPassword,
+			requestIP,
+		); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid or expired reset token",
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // meHandler godoc
 // @Summary      Get current user
 // @Description  Returns information about the authenticated user. Internal use
@@ -455,7 +668,7 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
-func healthhander(logger *slog.Logger, db *sql.DB) http.HandlerFunc {
+func healthhandler(logger *slog.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		if err := db.PingContext(r.Context()); err != nil {
@@ -498,27 +711,78 @@ func RegisterRoutes(
 	app app.App,
 	r chi.Router,
 	db *sql.DB,
+	app_url string,
 ) {
 
-	service := NewService(app.UserRepo, app.RefreshRepo, app.EmailRepo, app.Mailer, app.PrivateKey, app.TokenSecret, app.OutboxRepo, db)
+	/* nts: this look fucking ugly use the fucking struct */
 
-	r.Post("/register", registerHandler(service))
-	r.Post("/login", loginHandler(service))
-	r.Post("/refresh", refreshHandler(service))
-	r.Post("/logout", logoutHandler(service))
-	r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
-	r.Post("/resend-verification", resendVerificationHandler(service))
-	r.Post("/signup", signupHandler(service))
-	r.Get("/health", healthhander(app.Logger, db))
-	r.Get("/swagger/*", httpSwagger.WrapHandler)
-	/* Todo:
-	- change URLs to standard
-	- remeber wtf does this mean???
-	*/
+	service := NewService(
+		app.UserRepo,
+		app.RefreshRepo,
+		app.TenantRepo,
+		app.EmailRepo,
+		app.Mailer,
+		app.PrivateKey,
+		app.TokenSecret,
+		app.OutboxRepo,
+		db,
+		app_url,
+		app.RedisLimiter,
+	)
 
-	r.Group(func(r chi.Router) {
-		r.Use(JWTMiddleware(app.PublicKey))
-		r.Get("/me", meHandler())
-		r.Post("/revoke-all", revokeAllHandler(service))
+	r.Route("/auth", func(r chi.Router) {
+
+		/*  Two endpoints one to request and one to verify		*/
+		r.Group(func(r chi.Router) {
+			r.Use(TenantMiddleware(app.TenantRepo))
+			r.Use(RateLimitMiddleware(app.RedisLimiter, app.Logger))
+			r.Post("/password-change", changePasswordHandler(service))
+			r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
+			r.Post("/reset-password", resetPasswordHandler(service))
+
+			//r.Post("/register", registerHandler(service))
+			r.Post("/signup", signupHandler(service))
+			r.Post("/login", loginHandler(service))
+			r.Post("/refresh", refreshHandler(service))
+			r.Post("/logout", logoutHandler(service))
+
+			r.Get("/verify-email", verifyEmailHandler(app.Logger, service))
+			r.Post("/resend-verification", resendVerificationHandler(service))
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTMiddleware(app.PublicKey))
+			r.Get("/me", meHandler())
+			r.Post("/revoke-all", revokeAllHandler(service))
+
+		})
+
+		r.Get("/health", healthhandler(app.Logger, db))
+		r.Get("/swagger/*", httpSwagger.WrapHandler)
 	})
 }
+
+// Legacy types:
+/* type EmailVerificationRequestPayload struct {
+	UserID uuid.UUID `json:"user_id"`
+	Email  string    `json:"email"`
+
+	EventID         uuid.UUID `json:"event_id"`
+	VerificationUrl string    `json:"verification_url"`
+	ExpiresAt       time.Time `json:"expires_at"`
+} */
+
+/*
+	 type PasswordChangePayload struct {
+		Email  string `json:"email"`
+		Tenant string `json:"tenant"`
+		IP     string `json:"ip"`
+	}
+*/
+/* type PasswordResetRequestedPayload struct {
+	Email     string `json:"email"`
+	ResetLink string `json:"reset_link"`
+	IP        string `json:"ip"`
+	Tenant    string `json:"tenant"`
+}
+*/

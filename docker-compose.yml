@@ -1,4 +1,5 @@
 services:
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -28,21 +29,39 @@ services:
     networks:
       - backend
 
-  api:
+    mem_limit: 2g
+
+  mailservice:
+    build:
+      context: https://github.com/Fletcher17b/EmailMicroService.git
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.mailservice
+    networks:
+      - backend
+      - rabbitmq-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 1g
+
+  authapi:
     build:
       context: .
       dockerfile: Dockerfile
     image: authapi:latest
     restart: on-failure
-    ports:
-      - "8081:8081"
+    expose:
+      - "8081"
     env_file:
       - .env.compose
     volumes:
       - ./creds:/app/creds:ro
     depends_on:
       - db
-      - rabbitmq
     logging:
       driver: json-file
       options:
@@ -50,19 +69,39 @@ services:
         max-file: "3"
     networks:
       - backend
+      - api-gateway
+      - rabbitmq-network
     secrets:
       - authapi_private_key
       - authapi_public_key
-  rabbitmq:
-      build:
-        context: .
-        dockerfile: Dockerfile.RabbitMQ
-      ports:
-        - "5672:5672"
-        - "15672:15672"
-        - "15692:15692"
-      networks:
+    mem_limit: 1g
+
+
+  redis:
+    container_name: ratelimit_cache
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save "" --appendonly no
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
       - backend
+    
+
+
 
 secrets:
   authapi_private_key:
@@ -73,8 +112,18 @@ secrets:
 
 volumes:
   postgres_data:
+  redis_data:
+    driver: local
 
 networks:
   backend:
     name: authapi-compose-backend
     driver: bridge
+  api-gateway:
+    name: api-gateway
+    driver: bridge
+    external: true
+  rabbitmq-network:
+    name: rabbitmq-network
+    driver: bridge
+    external: true

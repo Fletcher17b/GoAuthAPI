@@ -6,21 +6,33 @@ import (
 )
 
 var (
+	ErrUserLockedout            = errors.New("user locked out, reset password")
 	ErrInvalidCredentials       = errors.New("invalid credentials")
 	ErrInvalidToken             = errors.New("invalid token")
+	ErrMissingToken             = errors.New("missing token")
 	ErrEmptyUsername            = errors.New("username is required")
 	ErrInvalidEmail             = errors.New("email format is invalid")
 	ErrEmailNotVerified         = errors.New("email not verified")
 	ErrRefreshReuse             = errors.New("attempted to reuse token")
 	ErrEmailAlreadyExists       = errors.New("email already exists")
 	ErrInvalidVerificationToken = errors.New("invalid or expired verification token")
-	ErrShortPassword            = errors.New("password must be greater than 3 characters")
+	ErrShortPassword            = errors.New("password must be greater than 9 characters")
+	ErrUnchangedPassword        = errors.New("new password must be different")
+	ErrPasswordsNotMatch        = errors.New("passwords do not coincide")
+
+	ErrTenantHeaderMissing = errors.New("missing tenant header")
+	ErrTenantNotFound      = errors.New("tenant not found")
+	ErrTenantInactive      = errors.New("tenant is not active")
+
+	ErrRateLimited = errors.New("too many requests")
 )
 
 func mapAuthError(err error) (int, string) {
 	switch {
+	/* case errors.Is(err, ErrEmailAlreadyExists):
+	return http.StatusConflict, "email already exists" */
 	case errors.Is(err, ErrEmailAlreadyExists):
-		return http.StatusConflict, "email already exists"
+		return http.StatusUnauthorized, "invalid credentials"
 	case errors.Is(err, ErrInvalidCredentials):
 		return http.StatusUnauthorized, "invalid credentials"
 	case errors.Is(err, ErrInvalidToken):

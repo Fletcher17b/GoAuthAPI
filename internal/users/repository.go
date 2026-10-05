@@ -11,7 +11,9 @@ import (
 type Repository interface {
 	Create(ctx context.Context, u *models.User) error
 	CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.User) error
-	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	FindByEmail(ctx context.Context, email string, tenant uuid.UUID) (*models.User, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.User, error)
 	ActivateUser(ctx context.Context, userID uuid.UUID) error
+	LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, lock bool) error
+	ChangePassword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error
 }

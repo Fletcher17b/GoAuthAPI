@@ -15,6 +15,50 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/login": {
+            "post": {
+                "description": "Authenticates a user with their email and password and returns access and refresh tokens.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "X-Tenant",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/logout": {
             "post": {
                 "description": "Revokes the provided refresh token.",
@@ -35,7 +79,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.LogoutRequest"
+                            "$ref": "#/definitions/auth.LogoutRequest"
                         }
                     }
                 ],
@@ -46,13 +90,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -80,7 +124,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -106,13 +150,156 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.UserInfo"
+                            "$ref": "#/definitions/auth.UserInfo"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/password/change": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes the user's password after validating the current email and password confirmation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Change password",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "X-Tenant",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Change password request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.ChangePasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/password/reset": {
+            "post": {
+                "description": "Resets a user's password using a valid password reset token.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Reset password",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "X-Tenant",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Password reset request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.ResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/password/reset/request": {
+            "post": {
+                "description": "Sends a password reset email to the specified email address.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Request password reset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "X-Tenant",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Password reset request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.SendPasswordResetEmailRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -138,7 +325,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.RefreshRequest"
+                            "$ref": "#/definitions/auth.RefreshRequest"
                         }
                     }
                 ],
@@ -146,19 +333,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.RefreshResponse"
+                            "$ref": "#/definitions/auth.RefreshResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -203,13 +390,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -235,7 +422,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.SignupRequest"
+                            "$ref": "#/definitions/auth.SignupRequest"
                         }
                     }
                 ],
@@ -243,25 +430,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.SignupResponseRefactor"
+                            "$ref": "#/definitions/auth.SignupResponseRefactor"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -287,7 +474,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ResendVerificationRequest"
+                            "$ref": "#/definitions/auth.ResendVerificationRequest"
                         }
                     }
                 ],
@@ -298,13 +485,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -336,13 +523,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/internal_auth.ErrorResponse"
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -350,7 +537,24 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "internal_auth.ErrorResponse": {
+        "auth.ChangePasswordRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "new_confirm": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string"
+                },
+                "old_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -358,7 +562,21 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.LogoutRequest": {
+        "auth.LoginResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.LogoutRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -366,7 +584,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.RefreshRequest": {
+        "auth.RefreshRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -374,7 +592,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.RefreshResponse": {
+        "auth.RefreshResponse": {
             "type": "object",
             "properties": {
                 "access_token": {
@@ -388,7 +606,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.ResendVerificationRequest": {
+        "auth.ResendVerificationRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -396,7 +614,26 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.SignupRequest": {
+        "auth.ResetPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "new_password": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.SendPasswordResetEmailRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.SignupRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -410,18 +647,18 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.SignupResponseRefactor": {
+        "auth.SignupResponseRefactor": {
             "type": "object",
             "properties": {
                 "tokens": {
-                    "$ref": "#/definitions/internal_auth.SignupResponseTokens"
+                    "$ref": "#/definitions/auth.SignupResponseTokens"
                 },
                 "user": {
-                    "$ref": "#/definitions/internal_auth.UserInfo"
+                    "$ref": "#/definitions/auth.UserInfo"
                 }
             }
         },
-        "internal_auth.SignupResponseTokens": {
+        "auth.SignupResponseTokens": {
             "type": "object",
             "properties": {
                 "access_token": {
@@ -435,7 +672,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_auth.UserInfo": {
+        "auth.UserInfo": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -461,13 +698,23 @@ const docTemplate = `{
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"
+        },
+        "TenantAuth": {
+            "type": "apiKey",
+            "name": "X-Tenant",
+            "in": "header"
         }
-    }
+    },
+    "security": [
+        {
+            "TenantAuth": []
+        }
+    ]
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.2",
+	Version:          "1.3",
 	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{},

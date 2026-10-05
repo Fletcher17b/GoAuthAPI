@@ -11,11 +11,16 @@ import (
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, t *models.RefreshToken) error
 	CreateTx(ctx context.Context, exec dbtx.DBTX, t *models.RefreshToken) error
-	FindbyHash(ctx context.Context, exec dbtx.DBTX, hash string) (*models.RefreshToken, error)
-	FindValidByHash(ctx context.Context, hash string) (*models.RefreshToken, error)
-	Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error
-	RevokeAllForUser(ctx context.Context, userID uuid.UUID) error
-	RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, familyID uuid.UUID) error
+	FindbyHash(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.RefreshToken, error)
+	FindValidByHash(ctx context.Context, hash string, tenant uuid.UUID) (*models.RefreshToken, error)
+	Revoke(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID, tenant uuid.UUID) error
+	RevokeAllForUser(ctx context.Context, userID uuid.UUID, tenant uuid.UUID) error
+	RevokeAllForFamily(ctx context.Context, exec dbtx.DBTX, familyID uuid.UUID, tenant uuid.UUID) error
+
+	CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error
+	FindValidResetTokenTx(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.PasswordResetToken, error)
+	RevokePreviousResetTokens(ctx context.Context, exec dbtx.DBTX, tenant uuid.UUID, user uuid.UUID) error
+	MarkResetTokenUsedTx(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error
 }
 
 func nullableUUID(id uuid.UUID) *uuid.UUID {

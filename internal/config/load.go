@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 func getEnv(key string) (string, error) {
@@ -201,6 +202,47 @@ func LoadMailerConfig(port int, baseURL string) (*mail.SMTPMailer, error) {
 	return &SMTPConf, nil
 }
 
+func LoadRedisConfig() (*redis.Options, error) {
+	var redis_options redis.Options
+	var err error
+
+	redis_options.Addr, err = getEnv("REDIS_ADDR")
+	if err != nil {
+		return nil, err
+	}
+	/* redis_options.Password, err = getEnv("REDIS_PASSWORD")
+	if err != nil {
+		return nil, err
+	} */
+	prot, err2 := getEnv("REDIS_PROTOCOL")
+	if err2 != nil {
+		println(prot)
+		return nil, err2
+	}
+	redis_options.Protocol, err = strconv.Atoi(prot)
+	if err != nil {
+		return nil, err
+	}
+	rdb, err3 := getEnv("REDIS_DB")
+	if err3 != nil {
+		return nil, err3
+	}
+	redis_options.DB, err = strconv.Atoi(rdb)
+	if err != nil {
+		return nil, err
+	}
+	return &redis_options, nil
+}
+
+func RedisOptionstoConfig(redisOptions *redis.Options) *RedisConfig {
+	return &RedisConfig{
+		Address:  redisOptions.Addr,
+		Password: redisOptions.Password,
+		DB:       uint8(redisOptions.DB),       // #nosec G115
+		Protocol: uint8(redisOptions.Protocol), // #nosec G115
+	}
+}
+
 // temporal function delete this later:
 func PostgresConfLoader() (PostgresConfig, error) {
 	var emptyConf PostgresConfig
@@ -313,7 +355,6 @@ func LoadDBconfigs() (DatabaseConfig, error) {
 
 	//nts: if any future db config (creds, port etc) goes here
 }
-
 func parseEnvList(raw string) []string {
 	if raw == "" {
 		return nil
@@ -321,12 +362,17 @@ func parseEnvList(raw string) []string {
 
 	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
+
 	for _, part := range parts {
 		value := strings.TrimSpace(part)
 		value = strings.Trim(value, `"`)
 		if value != "" {
 			out = append(out, value)
 		}
+	}
+
+	if len(out) == 0 {
+		return nil
 	}
 
 	return out

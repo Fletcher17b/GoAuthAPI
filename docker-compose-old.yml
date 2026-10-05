@@ -1,0 +1,102 @@
+# Older docker compose with all included services and exposed :8081
+# Designed to not use an nginx service, direct localhost:8081
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      POSTGRES_DB: authDB
+      POSTGRES_USER: auth_db
+      POSTGRES_PASSWORD: auth_db123
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_db -d authDB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - backend
+
+  rabbitmq:
+      build:
+        context: .
+        dockerfile: Dockerfile.RabbitMQ
+      ports:
+        - "5672:5672"
+        - "15672:15672"
+        - "15692:15692"
+      networks:
+      - backend
+
+  mailservice:
+    build:
+      context: https://github.com/Fletcher17b/EmailMicroService.git
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.mailservice
+    depends_on:
+      - rabbitmq
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  authapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: authapi:latest
+    restart: on-failure
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env.compose
+    volumes:
+      - ./creds:/app/creds:ro
+    depends_on:
+      - db
+      - rabbitmq
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+      - api-gateway
+    secrets:
+      - authapi_private_key
+      - authapi_public_key
+
+secrets:
+  authapi_private_key:
+    file: ./creds/private.pem
+  authapi_public_key:
+    file: ./creds/public.pem
+
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    name: authapi-compose-backend
+    driver: bridge

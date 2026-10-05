@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"AuthAPI/main/internal/auth/dbtx"
 	"AuthAPI/main/internal/models"
@@ -45,7 +46,7 @@ func (r *sqliteRepo) CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.Use
 	return err
 }
 
-func (r *sqliteRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+func (r *sqliteRepo) FindByEmail(ctx context.Context, email string, tenant uuid.UUID) (*models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT user_id, email, username, password_hash,
 		       email_verified, is_active, created_at, updated_at
@@ -58,7 +59,7 @@ func (r *sqliteRepo) FindByEmail(ctx context.Context, email string) (*models.Use
 		&u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -106,4 +107,27 @@ func (r *sqliteRepo) ActivateUser(ctx context.Context, userID uuid.UUID) error {
 	}
 
 	return err
+}
+
+func (r *sqliteRepo) LockoutUser(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, lock bool) error {
+	var lockedAt *time.Time
+
+	if lock {
+		now := time.Now()
+		lockedAt = &now
+	}
+
+	_, err := exec.ExecContext(ctx, `
+		UPDATE users
+		SET locked_at = $1
+		WHERE user_id = $2`,
+		lockedAt,
+		user,
+	)
+
+	return err
+}
+
+func (r *sqliteRepo) ChangePassword(ctx context.Context, exec dbtx.DBTX, user uuid.UUID, new_password string) error {
+	return nil
 }

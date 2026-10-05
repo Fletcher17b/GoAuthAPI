@@ -61,16 +61,6 @@ func (r *outbox_repo) CreateTx(ctx context.Context, exec dbtx.DBTX, outEvent *mo
 	return err
 }
 
-// FetchPending selects events that are due for (re)publishing, oldest first.
-// FOR UPDATE SKIP LOCKED lets multiple worker instances poll concurrently
-// without picking up the same rows.
-//
-// Note: r.db is a dbtx.DBTX (not a *sql.Tx), so this runs as its own
-// implicit transaction and the row locks are released as soon as the
-// SELECT completes. That's fine for reducing duplicate publishes under
-// light concurrency, but if you need a hard guarantee that a row can't be
-// picked up again until it's marked, move the fetch+mark into a single
-// caller-managed transaction using CreateTx-style plumbing.
 func (r *outbox_repo) FetchPending(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
@@ -121,6 +111,110 @@ func (r *outbox_repo) FetchPending(ctx context.Context, limit int) ([]*models.Ou
 			&e.CreatedAt,
 			&e.PublishedAt,
 			&e.LastError,
+		); err != nil {
+			return nil, err
+		}
+		if headers != nil {
+			e.Headers = json.RawMessage(headers)
+		}
+		events = append(events, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
+
+// ClaimBatch atomically selects and locks up to limit eligible rows in a
+// single statement (a CTE-scoped SELECT ... FOR UPDATE SKIP LOCKED feeding
+// an UPDATE ... RETURNING). Because it's one statement, Postgres holds the
+// row locks only for the duration of that statement - there is no
+// separate Go-level transaction left open afterward, so the caller is
+// free to do network I/O (the actual publish) with zero locks held.
+//
+// A row is eligible if it's:
+//   - pending (never attempted, or a prior claim on it expired and it was
+//     reset - see note below), or
+//   - processing but its locked_until has passed (a previous worker
+//     claimed it and crashed/hung before marking it published/failed -
+//     this is the crash-recovery path), or
+//   - failed and its backoff window (next_retry_at) has elapsed.
+func (r *outbox_repo) ClaimBatch(
+	ctx context.Context,
+	limit int,
+	workerID string,
+	lockDuration time.Duration,
+) ([]*models.OutboxEvent, error) {
+	rows, err := r.db.QueryContext(
+		ctx,
+		`
+		WITH claimed AS (
+			SELECT id
+			FROM outbox_events
+			WHERE
+				(status = 'pending')
+				OR (status = 'processing' AND locked_until < NOW())
+				OR (status = 'failed' AND next_retry_at <= NOW())
+			ORDER BY created_at ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE outbox_events o
+		SET status = 'processing',
+		    locked_at = NOW(),
+		    locked_until = NOW() + $2 * INTERVAL '1 second',
+		    locked_by = $3
+		FROM claimed
+		WHERE o.id = claimed.id
+		RETURNING
+			o.id,
+			o.aggregate_type,
+			o.aggregate_id,
+			o.event_type,
+			o.payload,
+			o.headers,
+			o.status,
+			o.retry_count,
+			o.next_retry_at,
+			o.created_at,
+			o.published_at,
+			o.last_error,
+			o.locked_at,
+			o.locked_until,
+			o.locked_by
+		`,
+		limit,
+		lockDuration.Seconds(),
+		workerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var events []*models.OutboxEvent
+	for rows.Next() {
+		var e models.OutboxEvent
+		var headers []byte
+		if err := rows.Scan(
+			&e.ID,
+			&e.AggregateType,
+			&e.AggregateID,
+			&e.EventType,
+			&e.Payload,
+			&headers,
+			&e.Status,
+			&e.RetryCount,
+			&e.NextRetryAt,
+			&e.CreatedAt,
+			&e.PublishedAt,
+			&e.LastError,
+			&e.LockedAt,
+			&e.LockedUntil,
+			&e.LockedBy,
 		); err != nil {
 			return nil, err
 		}

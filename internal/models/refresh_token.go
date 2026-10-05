@@ -9,6 +9,7 @@ import (
 type RefreshToken struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
+	TenantID    uuid.UUID
 	TokenHash   string
 	ClientID    string
 	ParentToken uuid.UUID

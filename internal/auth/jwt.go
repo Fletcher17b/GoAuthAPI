@@ -3,9 +3,13 @@ package auth
 import (
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -43,12 +47,8 @@ func GenerateAccessToken(
 	return token.SignedString(privateKey)
 }
 
-func generateClientID() string {
-	return uuid.NewString()
-}
-
 // nts TODO: document this shit, familyID is the session identifier, clientID is kinda useless rn but half the shit usses it
-func generateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
+func GenerateRefreshToken(userID, familyID, parentToken, tenantID uuid.UUID, clientID, secret string) (string, *models.RefreshToken, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
@@ -68,6 +68,7 @@ func generateRefreshToken(userID, familyID, parentToken uuid.UUID, clientID, sec
 		ID:          rtid,
 		UserID:      userID,
 		ClientID:    clientID,
+		TenantID:    tenantID,
 		TokenHash:   hash,
 		FamilyID:    familyID,
 		ParentToken: parentToken,
@@ -102,10 +103,14 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 	return claims, nil
 }
 
-//nolint:unused
-func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
+/*
+Returns an email Verification Token that expires in 24 hours
+*/
+func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)
-	rand.Read(raw)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
 
 	plain := base64.RawURLEncoding.EncodeToString(raw)
 	hash := crypto.HashToken(plain, secret)
@@ -124,4 +129,63 @@ func generateEmailVerificationToken(userID uuid.UUID, secret string) (string, *m
 		ExpiresAt: now.Add(24 * time.Hour),
 		CreatedAt: now,
 	}, nil
+}
+
+func GeneratePasswordResetToken(userID, tenantID uuid.UUID, secret string) (string, *models.PasswordResetToken, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+
+	plain := base64.RawURLEncoding.EncodeToString(raw)
+	hash := crypto.HashToken(plain, secret)
+
+	now := time.Now()
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", nil, err
+	}
+
+	return plain, &models.PasswordResetToken{
+		ID:        id,
+		UserID:    userID,
+		TenantID:  tenantID,
+		TokenHash: hash,
+		ExpiresAt: now.Add(1 * time.Hour),
+		CreatedAt: now,
+	}, nil
+}
+
+func GenerateClientID() string {
+	return uuid.NewString()
+}
+
+func signClientID(id uuid.UUID, secret []byte) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write(id[:])
+	return id.String() + "." + hex.EncodeToString(m.Sum(nil))[:16]
+}
+
+func verifyClientID(s string, secret []byte) (uuid.UUID, bool) { //nolint:unused
+	raw, sig, ok := strings.Cut(s, ".")
+	if !ok {
+		return uuid.Nil, false
+	}
+
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, false
+	}
+
+	m := hmac.New(sha256.New, secret)
+	_, _ = m.Write(id[:])
+
+	expected := hex.EncodeToString(m.Sum(nil))[:16]
+
+	if !hmac.Equal([]byte(expected), []byte(sig)) {
+		return uuid.Nil, false
+	}
+
+	return id, true
 }

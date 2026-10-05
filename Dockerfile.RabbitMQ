@@ -16,5 +16,5 @@ RUN rabbitmq-plugins enable --offline \
 # 5672:  AMQP protocol
 # 15672: Management UI (HTTP)
 # 15692: Prometheus metrics endpoint
-# 1883:  MQTT (uncomment in EXPOSE and plugins if enabled)
+# 1883:  MQTT (not used)
 EXPOSE 5672 15672 15692
