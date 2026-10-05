@@ -12,9 +12,9 @@ import (
 type PolicyState string
 
 const (
-	allowed      PolicyState = "allowed"
-	undetermined PolicyState = "undetermined"
-	disallowed   PolicyState = "disallowed"
+	allowed      PolicyState = "allowed"      //nolint:unused
+	undetermined PolicyState = "undetermined" //nolint:unused
+	disallowed   PolicyState = "disallowed"   //nolint:unused
 )
 
 type EmailEvents struct {
@@ -70,7 +70,7 @@ type TenantNotificationPolicies struct {
 	Push_policy  PushPolicy
 }
 
-type tenant_policies struct {
+type tenant_policies struct { //nolint:unused
 	TenantId           uuid.UUID // FK
 	ApiKey             uuid.UUID // Semi FK, can be used as an indentifier, probs gonna need an index
 	PolicyVersion      string

@@ -150,7 +150,7 @@ func ClientIP(r *http.Request) string {
 // @Failure      400 {object} ErrorResponse
 // @Failure      409 {object} ErrorResponse
 // @Router       /register [post]
-func registerHandler(s *Service) http.HandlerFunc {
+func registerHandler(s *Service) http.HandlerFunc { //nolint:unused
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Email    string `json:"email"`
@@ -401,7 +401,7 @@ func refreshHandler(s *Service) http.HandlerFunc {
 			RefreshExpiresAt: expiresAt.UTC().Format(time.RFC3339),
 		}
 
-		errr := json.NewEncoder(w).Encode(resp)
+		errr := json.NewEncoder(w).Encode(resp) // #nosec G117
 		if errr != nil {
 			http.Error(w, "Something went wrong", http.StatusInternalServerError)
 			return
@@ -727,7 +727,7 @@ func RegisterRoutes(
 		app.OutboxRepo,
 		db,
 		app_url,
-		*app.RedisLimiter,
+		app.RedisLimiter,
 	)
 
 	r.Route("/auth", func(r chi.Router) {
@@ -735,7 +735,7 @@ func RegisterRoutes(
 		/*  Two endpoints one to request and one to verify		*/
 		r.Group(func(r chi.Router) {
 			r.Use(TenantMiddleware(app.TenantRepo))
-			r.Use(RateLimitMiddleware(*app.RedisLimiter, app.Logger))
+			r.Use(RateLimitMiddleware(app.RedisLimiter, app.Logger))
 			r.Post("/password-change", changePasswordHandler(service))
 			r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
 			r.Post("/reset-password", resetPasswordHandler(service))

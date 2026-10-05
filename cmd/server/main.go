@@ -108,7 +108,7 @@ func main() {
 		TenantRepo:   tenants.NewTenantRepo(cfg.Database.Driver, database),
 		Logger:       logger,
 		Redisclient:  rdb,
-		RedisLimiter: &ratelimiter,
+		RedisLimiter: ratelimiter,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

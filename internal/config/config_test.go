@@ -100,7 +100,7 @@ func TestLoadBrokerConfig(t *testing.T) {
 
 		got := LoadBrokerConfig()
 
-		want := BrokerConfig{ //#nosec
+		want := BrokerConfig{ //#nosec G101
 			URL:      "amqp://guest:guest@localhost:5672/",
 			Exchange: "authapi.events",
 		}

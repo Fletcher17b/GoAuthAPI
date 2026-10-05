@@ -32,9 +32,9 @@ type DeviceInfo struct {
 	IP        string
 }
 
-const deviceCookie = "device_id"
+const deviceCookie = "device_id" //nolint:unused
 
-func deviceFromRequest(w http.ResponseWriter, r *http.Request) DeviceInfo {
+func deviceFromRequest(w http.ResponseWriter, r *http.Request) DeviceInfo { //nolint:unused
 	id := strings.TrimSpace(r.Header.Get("X-Device-ID"))
 	if id == "" {
 		if c, err := r.Cookie(deviceCookie); err == nil {

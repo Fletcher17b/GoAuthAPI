@@ -50,7 +50,7 @@ func NewRedisLimiter(redis *redis.Client) RedisLimiter {
 
 type RedisLimiter interface {
 	CheckLogin(ctx context.Context, ip, email string) error
-	RecordLoginFailure(ctx context.Context, ip, email string, notifyAttempt int64) (error, int)
+	RecordLoginFailure(ctx context.Context, ip, email string, notifyAttempt int64) (int, error)
 
 	CheckSignup(ctx context.Context, ip string) error
 	RecordSignupAttempt(ctx context.Context, ip string) error
@@ -90,7 +90,7 @@ func (l *RedisClient) RecordLoginFailure(
 	ip string,
 	email string,
 	notifyAttempt int64,
-) (error, int) {
+) (int, error) {
 
 	keys := RedisKeyBuilder("login", ip, email)
 	result, err := luascripts.RecordLoginFailureScript.Run(
@@ -102,10 +102,10 @@ func (l *RedisClient) RecordLoginFailure(
 	).Int()
 
 	if err != nil {
-		return err, 0
+		return 0, err
 	}
 
-	return nil, result
+	return result, nil
 }
 
 func (l *RedisClient) CheckSignup(

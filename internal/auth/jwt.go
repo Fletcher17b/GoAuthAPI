@@ -167,7 +167,7 @@ func signClientID(id uuid.UUID, secret []byte) string {
 	return id.String() + "." + hex.EncodeToString(m.Sum(nil))[:16]
 }
 
-func verifyClientID(s string, secret []byte) (uuid.UUID, bool) {
+func verifyClientID(s string, secret []byte) (uuid.UUID, bool) { //nolint:unused
 	raw, sig, ok := strings.Cut(s, ".")
 	if !ok {
 		return uuid.Nil, false

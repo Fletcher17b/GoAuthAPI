@@ -238,8 +238,8 @@ func RedisOptionstoConfig(redisOptions *redis.Options) *RedisConfig {
 	return &RedisConfig{
 		Address:  redisOptions.Addr,
 		Password: redisOptions.Password,
-		DB:       uint8(redisOptions.DB),
-		Protocol: uint8(redisOptions.Protocol),
+		DB:       uint8(redisOptions.DB),       // #nosec G115
+		Protocol: uint8(redisOptions.Protocol), // #nosec G115
 	}
 }
 

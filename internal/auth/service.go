@@ -52,6 +52,8 @@ type Service struct {
 	rateLimiter ratelimiter.RedisLimiter
 }
 
+const suspiciousLoginNotifyAt int64 = 5
+
 /*
 const (
 
@@ -60,7 +62,6 @@ const (
 
 )
 */
-const suspiciousLoginNotifyAt = 5
 
 func NewService(
 	users users.Repository,
@@ -369,7 +370,7 @@ func (s *Service) SignupService(
 	clientID := signClientID(cId, []byte(s.tokenSecret))
 	tenant_model, OK := TenantFromContext(ctx)
 	if !OK {
-		return nil, errors.New("Couldnt get tenanat")
+		return nil, errors.New("couldnt get tenant")
 	}
 
 	tenant_name := tenant_model.TenantName
@@ -471,11 +472,47 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 				- different device shouldn't kill another's device session
 */
 
+func susloginfailure(user *models.User, tenant *models.Tenant, req_ip string) (*models.OutboxEvent, error) {
+	susloginEventID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+
+	payload_suslogin_raw := models.EmailPayloadContext{
+		Tenant:   tenant.TenantName,
+		UserID:   user.ID,
+		Email:    user.Email,
+		Username: user.Username,
+
+		EventID: susloginEventID,
+		IP:      req_ip,
+	}
+
+	payload_suslogin_json, err := json.Marshal(payload_suslogin_raw)
+	if err != nil {
+		return nil, err
+	}
+
+	SusLoginOutbox := &models.OutboxEvent{
+		ID:          susloginEventID,
+		EventType:   models.UserLoginSucceeded,
+		Payload:     payload_suslogin_json,
+		Status:      models.StatusPending,
+		CreatedAt:   time.Now(),
+		NextRetryAt: time.Now().Add(1 * time.Minute),
+	}
+
+	return SusLoginOutbox, nil
+}
+
 func (s *Service) Login(
 	ctx context.Context,
 	email, password,
 	req_ip string,
 ) (string, string, string, error) {
+
+	var send_suspiciousactivityemail int
+	var errf error
 
 	tenant, ok := TenantFromContext(ctx)
 	if !ok || tenant == nil {
@@ -495,13 +532,40 @@ func (s *Service) Login(
 	}
 
 	if user == nil || user.PasswordHash == nil {
-		s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		_, errf = s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		if errf != nil {
+			return "", "", "", errf
+		}
 		_ = crypto.ComparePassword(dummyPasswordHash, password)
 		return "", "", "", loginFailed()
 	}
 
 	if err := crypto.ComparePassword(*user.PasswordHash, password); err != nil {
-		s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		send_suspiciousactivityemail, errf = s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		if errf != nil {
+			return "", "", "", errf
+		}
+
+		if send_suspiciousactivityemail == 2 {
+			tx, err := s.db.BeginTx(ctx, nil)
+			if err != nil {
+				return "", "", "", err
+			}
+
+			susloginevent, errf2 := susloginfailure(user, tenant, req_ip)
+			if errf2 != nil {
+				return "", "", "", loginFailed()
+			}
+
+			if err := s.outboxrepo.CreateTx(ctx, tx, susloginevent); err != nil {
+				return "", "", "", err
+			}
+
+			defer func() {
+				_ = tx.Rollback()
+			}()
+		}
+
 		return "", "", "", loginFailed()
 	}
 
@@ -531,6 +595,7 @@ func (s *Service) Login(
 		return "", "", "", err
 	}
 
+	// Succesful Event Event
 	loginEventID, err := uuid.NewV7()
 	if err != nil {
 		return "", "", "", err
@@ -585,7 +650,7 @@ func (s *Service) Login(
 	return access, refreshPlain, clientID, nil
 }
 
-func (s *Service) enqueueNewDeviceEmailTx(
+func (s *Service) enqueueNewDeviceEmailTx( //nolint:unused
 	ctx context.Context,
 	tx *sql.Tx,
 	user *models.User,

@@ -25,5 +25,5 @@ type App struct {
 	TenantRepo   tenants.TenantRepository
 	Logger       *slog.Logger
 	Redisclient  *redis.Client
-	RedisLimiter *ratelimiter.RedisLimiter
+	RedisLimiter ratelimiter.RedisLimiter
 }

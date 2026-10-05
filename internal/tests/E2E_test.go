@@ -57,7 +57,7 @@ func newTestRouter(t *testing.T) (*chi.Mux, *rsa.PrivateKey, *rsa.PublicKey) {
 
 	logger := newTestLogger()
 
-	a := app.App{ //#nosec
+	a := app.App{ //#nosec G101
 		UserRepo:    users.NewUserRepo("postgres", db),
 		RefreshRepo: refresh.NewPostgresRefreshRepo(db),
 		EmailRepo:   mail.NewEmailVerificationRepo("postgres", db),

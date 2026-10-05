@@ -60,9 +60,12 @@ func dbNow(t *testing.T, ctx context.Context, tx *sql.Tx) time.Time {
 	return now
 }
 
-// newDueOutboxEvent builds an event whose next_retry_at/created_at are
-// already due according to Postgres's own clock (see dbNow), for tests that
-// rely on ClaimBatch's "next_retry_at <= now()" filter actually matching.
+// newDueOutboxEvent builds a pending event whose created_at is aligned to
+// Postgres's own clock (see dbNow), so ORDER BY created_at ASC behaves
+// predictably relative to other fixtures in the same test. NextRetryAt is
+// set for consistency but has no effect here: ClaimBatch only consults
+// next_retry_at for status='failed' rows (see the "excludes events whose
+// next_retry_at is in the future" test for that path).
 func newDueOutboxEvent(t *testing.T, ctx context.Context, tx *sql.Tx) *models.OutboxEvent {
 	t.Helper()
 	e := newOutboxEvent()
@@ -394,10 +397,13 @@ func TestOutboxRepo_ClaimBatch(t *testing.T) {
 		withOutboxTx(t, func(ctx context.Context, tx *sql.Tx, repo *outbox_repo) {
 			now := dbNow(t, ctx, tx)
 
+			// This gate only applies to failed rows; pending rows are always due.
 			notYetDue := newOutboxEvent()
+			notYetDue.Status = models.StatusFailed
 			notYetDue.NextRetryAt = now.Add(time.Hour)
 
 			due := newOutboxEvent()
+			due.Status = models.StatusFailed
 			due.NextRetryAt = now.Add(-time.Minute)
 
 			if err := repo.Create(ctx, notYetDue); err != nil {
