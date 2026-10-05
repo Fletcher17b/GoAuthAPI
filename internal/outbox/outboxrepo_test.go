@@ -62,7 +62,7 @@ func dbNow(t *testing.T, ctx context.Context, tx *sql.Tx) time.Time {
 
 // newDueOutboxEvent builds an event whose next_retry_at/created_at are
 // already due according to Postgres's own clock (see dbNow), for tests that
-// rely on FetchPending's "next_retry_at <= now()" filter actually matching.
+// rely on ClaimBatch's "next_retry_at <= now()" filter actually matching.
 func newDueOutboxEvent(t *testing.T, ctx context.Context, tx *sql.Tx) *models.OutboxEvent {
 	t.Helper()
 	e := newOutboxEvent()
@@ -317,8 +317,8 @@ func TestOutboxRepo_Create_ContextCanceled(t *testing.T) {
 	})
 }
 
-// ---------- FetchPending ----------
-func TestOutboxRepo_FetchPending(t *testing.T) {
+// ---------- ClaimBatch ----------
+func TestOutboxRepo_ClaimBatch(t *testing.T) {
 	t.Run("returns pending events due now, oldest first", func(t *testing.T) {
 		withOutboxTx(t, func(ctx context.Context, tx *sql.Tx, repo *outbox_repo) {
 			now := dbNow(t, ctx, tx)
@@ -336,9 +336,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 				t.Fatalf("Create(newer) error = %v", err)
 			}
 
-			got, err := repo.FetchPending(ctx, 10)
+			got, err := repo.ClaimBatch(ctx, 10, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 			if len(got) != 2 {
 				t.Fatalf("len(got) = %d, want 2", len(got))
@@ -352,7 +352,7 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 		})
 	})
 
-	t.Run("includes Failed status, excludes Published and Publishing", func(t *testing.T) {
+	t.Run("includes Failed status, excludes Published and Processing (not yet expired)", func(t *testing.T) {
 		withOutboxTx(t, func(ctx context.Context, tx *sql.Tx, repo *outbox_repo) {
 			failed := newDueOutboxEvent(t, ctx, tx)
 			failed.Status = models.StatusFailed
@@ -361,7 +361,7 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 			published.Status = models.StatusPublished
 
 			publishing := newDueOutboxEvent(t, ctx, tx)
-			publishing.Status = models.StatusPublishing
+			publishing.Status = models.StatusProcessing
 
 			for _, e := range []*models.OutboxEvent{failed, published, publishing} {
 				if err := repo.Create(ctx, e); err != nil {
@@ -369,9 +369,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 				}
 			}
 
-			got, err := repo.FetchPending(ctx, 10)
+			got, err := repo.ClaimBatch(ctx, 10, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 
 			ids := map[uuid.UUID]bool{}
@@ -407,9 +407,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 				t.Fatalf("Create(due) error = %v", err)
 			}
 
-			got, err := repo.FetchPending(ctx, 10)
+			got, err := repo.ClaimBatch(ctx, 10, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 
 			ids := map[uuid.UUID]bool{}
@@ -433,9 +433,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 				}
 			}
 
-			got, err := repo.FetchPending(ctx, 3)
+			got, err := repo.ClaimBatch(ctx, 3, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 			if len(got) != 3 {
 				t.Fatalf("len(got) = %d, want 3", len(got))
@@ -445,9 +445,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 
 	t.Run("empty table returns empty slice, no error", func(t *testing.T) {
 		withOutboxTx(t, func(ctx context.Context, tx *sql.Tx, repo *outbox_repo) {
-			got, err := repo.FetchPending(ctx, 10)
+			got, err := repo.ClaimBatch(ctx, 10, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 			if len(got) != 0 {
 				t.Fatalf("len(got) = %d, want 0", len(got))
@@ -464,9 +464,9 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 				t.Fatalf("Create() error = %v", err)
 			}
 
-			got, err := repo.FetchPending(ctx, 10)
+			got, err := repo.ClaimBatch(ctx, 10, "test-worker", time.Minute)
 			if err != nil {
-				t.Fatalf("FetchPending() error = %v", err)
+				t.Fatalf("ClaimBatch() error = %v", err)
 			}
 			if len(got) != 1 {
 				t.Fatalf("len(got) = %d, want 1", len(got))
@@ -482,18 +482,18 @@ func TestOutboxRepo_FetchPending(t *testing.T) {
 			cctx, cancel := context.WithCancel(ctx)
 			cancel()
 
-			_, err := repo.FetchPending(cctx, 10)
+			_, err := repo.ClaimBatch(cctx, 10, "test-worker", time.Minute)
 			if err == nil {
-				t.Fatal("FetchPending() error = nil, want context cancellation error")
+				t.Fatal("ClaimBatch() error = nil, want context cancellation error")
 			}
 			if !errors.Is(err, context.Canceled) {
-				t.Errorf("FetchPending() error = %v, want context.Canceled", err)
+				t.Errorf("ClaimBatch() error = %v, want context.Canceled", err)
 			}
 		})
 	})
 }
 
-func TestOutboxRepo_FetchPending_SkipLockedConcurrency(t *testing.T) {
+func TestOutboxRepo_ClaimBatch_SkipLockedConcurrency(t *testing.T) {
 	db := requirePostgres(t)
 	ctx := context.Background()
 
@@ -546,19 +546,19 @@ func TestOutboxRepo_FetchPending_SkipLockedConcurrency(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		got1, err1 = repo1.FetchPending(ctx, 5)
+		got1, err1 = repo1.ClaimBatch(ctx, 5, "worker-1", time.Minute)
 	}()
 	go func() {
 		defer wg.Done()
-		got2, err2 = repo2.FetchPending(ctx, 5)
+		got2, err2 = repo2.ClaimBatch(ctx, 5, "worker-2", time.Minute)
 	}()
 	wg.Wait()
 
 	if err1 != nil {
-		t.Fatalf("repo1.FetchPending() error = %v", err1)
+		t.Fatalf("repo1.ClaimBatch() error = %v", err1)
 	}
 	if err2 != nil {
-		t.Fatalf("repo2.FetchPending() error = %v", err2)
+		t.Fatalf("repo2.ClaimBatch() error = %v", err2)
 	}
 
 	seen := map[uuid.UUID]bool{}
@@ -567,7 +567,7 @@ func TestOutboxRepo_FetchPending_SkipLockedConcurrency(t *testing.T) {
 	}
 	for _, e := range got2 {
 		if seen[e.ID] {
-			t.Errorf("event %v was returned by both concurrent FetchPending calls; "+
+			t.Errorf("event %v was returned by both concurrent ClaimBatch calls; "+
 				"FOR UPDATE SKIP LOCKED should prevent this", e.ID)
 		}
 	}

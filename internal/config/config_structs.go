@@ -8,6 +8,7 @@ type Config struct {
 	CORS_ALLOWED_ORIGINS []string
 
 	Database    DatabaseConfig
+	Redis       RedisConfig
 	Broker      BrokerConfig
 	Environment string
 	LogLevel    string
@@ -15,6 +16,13 @@ type Config struct {
 
 type SQLiteConfig struct {
 	Path string
+}
+
+type RedisConfig struct {
+	Address  string
+	Password string
+	DB       uint8
+	Protocol uint8
 }
 
 type PostgresConfig struct {

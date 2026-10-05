@@ -25,6 +25,8 @@ type OutboxRepo interface {
 	CreateTx(ctx context.Context, exec dbtx.DBTX, u *models.OutboxEvent) error
 	Create(ctx context.Context, u *models.OutboxEvent) error
 	FetchPending(ctx context.Context, limit int) ([]*models.OutboxEvent, error)
+
+	ClaimBatch(ctx context.Context, limit int, workerID string, lockDuration time.Duration) ([]*models.OutboxEvent, error)
 	MarkPublished(ctx context.Context, id uuid.UUID, publishedAt time.Time) error
 	MarkFailed(ctx context.Context, id uuid.UUID, nextRetryAt time.Time, lastErr string) error
 }

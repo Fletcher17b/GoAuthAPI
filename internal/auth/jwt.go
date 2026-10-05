@@ -3,9 +3,13 @@ package auth
 import (
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -41,10 +45,6 @@ func GenerateAccessToken(
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	return token.SignedString(privateKey)
-}
-
-func GenerateClientID() string {
-	return uuid.NewString()
 }
 
 // nts TODO: document this shit, familyID is the session identifier, clientID is kinda useless rn but half the shit usses it
@@ -104,12 +104,13 @@ func ParseAccessToken(tokenStr string, pub *rsa.PublicKey) (*Claims, error) {
 }
 
 /*
-	Returns an email Verification Token that expires in 24 hours
+Returns an email Verification Token that expires in 24 hours
 */
-//nolint:unused
 func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *models.EmailVerificationToken, error) {
 	raw := make([]byte, 32)
-	rand.Read(raw)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
 
 	plain := base64.RawURLEncoding.EncodeToString(raw)
 	hash := crypto.HashToken(plain, secret)
@@ -132,7 +133,9 @@ func GenerateEmailVerificationToken(userID uuid.UUID, secret string) (string, *m
 
 func GeneratePasswordResetToken(userID, tenantID uuid.UUID, secret string) (string, *models.PasswordResetToken, error) {
 	raw := make([]byte, 32)
-	rand.Read(raw)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
 
 	plain := base64.RawURLEncoding.EncodeToString(raw)
 	hash := crypto.HashToken(plain, secret)
@@ -152,4 +155,37 @@ func GeneratePasswordResetToken(userID, tenantID uuid.UUID, secret string) (stri
 		ExpiresAt: now.Add(1 * time.Hour),
 		CreatedAt: now,
 	}, nil
+}
+
+func GenerateClientID() string {
+	return uuid.NewString()
+}
+
+func signClientID(id uuid.UUID, secret []byte) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write(id[:])
+	return id.String() + "." + hex.EncodeToString(m.Sum(nil))[:16]
+}
+
+func verifyClientID(s string, secret []byte) (uuid.UUID, bool) {
+	raw, sig, ok := strings.Cut(s, ".")
+	if !ok {
+		return uuid.Nil, false
+	}
+
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, false
+	}
+
+	m := hmac.New(sha256.New, secret)
+	_, _ = m.Write(id[:])
+
+	expected := hex.EncodeToString(m.Sum(nil))[:16]
+
+	if !hmac.Equal([]byte(expected), []byte(sig)) {
+		return uuid.Nil, false
+	}
+
+	return id, true
 }

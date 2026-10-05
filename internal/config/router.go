@@ -34,6 +34,7 @@ func InitRouter(
 	r.Use(auth.RequestIDMiddleware)
 	r.Use(metrics.MetricsMiddleware)
 	r.Use(auth.LoggingMiddleware(logger))
+	r.Use(auth.RecovererMiddleware(logger))
 	r.Handle("/metrics", promhttp.Handler())
 	registerBusinessRoutes(r)
 

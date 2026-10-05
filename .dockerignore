@@ -15,6 +15,7 @@ auth.db
 *.db
 *.sqlite
 *.sqlite3
+.luarc.json
 
 coverage.out
 

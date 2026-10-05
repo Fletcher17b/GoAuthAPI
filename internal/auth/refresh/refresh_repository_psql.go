@@ -15,6 +15,15 @@ type refreshPostgresRepo struct {
 	db dbtx.DBTX
 }
 
+type Session struct {
+	DeviceID   string     `json:"device_id"`
+	FamilyID   uuid.UUID  `json:"family_id"`
+	UserAgent  string     `json:"user_agent"`
+	IP         string     `json:"ip"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+}
+
 func NewPostgresRefreshRepo(db *sql.DB) RefreshTokenRepository {
 	return &refreshPostgresRepo{db}
 }
@@ -93,7 +102,8 @@ func (r *refreshPostgresRepo) FindbyHash(
 			created_at
 		FROM refresh_tokens
 		WHERE token_hash = $1
-		  AND tenant_id = $2`,
+		  AND tenant_id = $2
+		FOR UPDATE`,
 		hash,
 		tenant,
 	)
@@ -272,6 +282,29 @@ func (r *refreshPostgresRepo) FindValidResetTokenTx(
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (r *refreshPostgresRepo) RevokePreviousResetTokens(
+	ctx context.Context,
+	exec dbtx.DBTX,
+	tenant uuid.UUID,
+	user uuid.UUID,
+) error {
+	now := time.Now()
+	_, err := exec.ExecContext(ctx,
+		`
+		UPDATE password_reset_tokens 
+		SET revoked_at = $1
+		WHERE user_id = $2
+		  AND tenant_id = $3
+		  AND used_at IS NULL
+		  AND expires_at > CURRENT_TIMESTAMP
+	`,
+		now,
+		user,
+		tenant,
+	)
+	return err
 }
 
 func (r *refreshPostgresRepo) MarkResetTokenUsedTx(

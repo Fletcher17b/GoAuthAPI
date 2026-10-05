@@ -1,5 +1,7 @@
 package refresh
 
+/* SQLITE deprecated for this version */
+
 import (
 	"context"
 	"database/sql"
@@ -127,6 +129,15 @@ func (r *refreshRepo) CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rt
 }
 func (r *refreshRepo) FindValidResetTokenTx(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.PasswordResetToken, error) {
 	return nil, errors.New("password reset is not supported on the sqlite driver")
+}
+
+func (r *refreshRepo) RevokePreviousResetTokens(
+	ctx context.Context,
+	exec dbtx.DBTX,
+	tenant uuid.UUID,
+	user uuid.UUID,
+) error {
+	return errors.New("password reset is not supported on the sqlite driver")
 }
 
 func (r *refreshRepo) MarkResetTokenUsedTx(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error {

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os/signal"
@@ -26,7 +27,9 @@ import (
 	"AuthAPI/main/internal/auth"
 	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/logger"
+	luascripts "AuthAPI/main/internal/auth/luascripts"
 	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/auth/ratelimiter"
 	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/broker"
@@ -36,6 +39,7 @@ import (
 	"AuthAPI/main/internal/users"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -65,19 +69,46 @@ func main() {
 		panic(err)
 	}
 
-	/* tenant_repo := tenants. */
+	redisoptions, err := config.LoadRedisConfig()
+	if err != nil {
+		log.Fatalf("failed to load Redis config: %v", err)
+		/* log.Fatal(err) */
+		/* panic(err) */
+	}
+	fmt.Printf(
+		"Redis addr=%q protocol=%d db=%d\n",
+		redisoptions.Addr,
+		redisoptions.Protocol,
+		redisoptions.DB,
+	)
+
+	cfg.Redis = *config.RedisOptionstoConfig(redisoptions)
+	ctx := context.Background()
+
+	rdb := redis.NewClient(redisoptions)
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := luascripts.Init(); err != nil {
+		log.Fatal(err)
+	}
+
+	ratelimiter := ratelimiter.NewRedisLimiter(rdb)
 
 	app := &app.App{
-		UserRepo:    users.NewUserRepo(cfg.Database.Driver, database),
-		RefreshRepo: refresh.NewRefreshRepo(cfg.Database.Driver, database),
-		EmailRepo:   mail.NewEmailVerificationRepo(cfg.Database.Driver, database),
-		Mailer:      &cfg.SMTP,
-		PrivateKey:  priv,
-		PublicKey:   pub,
-		TokenSecret: tokenSecret,
-		OutboxRepo:  outbox.NewOutboxRepo(cfg.Database.Driver, database),
-		TenantRepo:  tenants.NewTenantRepo(cfg.Database.Driver, database),
-		Logger:      logger,
+		UserRepo:     users.NewUserRepo(cfg.Database.Driver, database),
+		RefreshRepo:  refresh.NewRefreshRepo(cfg.Database.Driver, database),
+		EmailRepo:    mail.NewEmailVerificationRepo(cfg.Database.Driver, database),
+		Mailer:       &cfg.SMTP,
+		PrivateKey:   priv,
+		PublicKey:    pub,
+		TokenSecret:  tokenSecret,
+		OutboxRepo:   outbox.NewOutboxRepo(cfg.Database.Driver, database),
+		TenantRepo:   tenants.NewTenantRepo(cfg.Database.Driver, database),
+		Logger:       logger,
+		Redisclient:  rdb,
+		RedisLimiter: &ratelimiter,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -92,12 +123,12 @@ func main() {
 		mqBroker = rabbit
 		defer func() {
 			if err := mqBroker.Close(); err != nil {
-				logger.Error(err.Error())
+				logger.Error("broker: error during close", "error", err)
 			}
 		}()
 
-		processor := outbox.NewProcessor(app.OutboxRepo, mqBroker)
-		worker := outbox.NewWorker(processor, outbox.WorkerConfig{})
+		processor := outbox.NewProcessor(app.OutboxRepo, mqBroker, logger, "outbox-worker-1")
+		worker := outbox.NewWorker(processor, outbox.WorkerConfig{}, logger)
 		go worker.Run(ctx)
 	} else if cfg.Database.Driver == "sqlite" && cfg.Environment == "production" {
 		logger.Info("Application running on production mode with sqlite, are you sure of what you're doing?")
@@ -108,7 +139,6 @@ func main() {
 
 	r := config.InitRouter(cfg, pub, logger, app.TenantRepo, func(r chi.Router) {
 		auth.RegisterRoutes(*app, r, database, cfg.AppBaseURL)
-
 	})
 
 	srv := &http.Server{
@@ -131,6 +161,7 @@ func main() {
 
 	<-ctx.Done()
 	logger.Error("shutting down...")
+	//rdb.Close()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

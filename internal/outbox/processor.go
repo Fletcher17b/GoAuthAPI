@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"time"
 
@@ -16,30 +16,44 @@ const (
 	maxRetries  = 8
 	baseBackoff = 2 * time.Second
 	maxBackoff  = 5 * time.Minute
+
+	// claimLockDuration bounds how long a claimed row stays in
+	// status=processing before another worker instance is allowed to
+	// reclaim it - i.e. how long we tolerate a worker dying mid-publish
+	// before its claims become eligible for retry by someone else.
+	claimLockDuration = 30 * time.Second
 )
 
 type Processor struct {
-	repo   OutboxRepo
-	broker broker.Broker
+	repo     OutboxRepo
+	broker   broker.Broker
+	logger   *slog.Logger
+	workerID string
 }
 
-func NewProcessor(repo OutboxRepo, b broker.Broker) *Processor {
+func NewProcessor(repo OutboxRepo, b broker.Broker, logger *slog.Logger, workerID string) *Processor {
 	return &Processor{
-		repo:   repo,
-		broker: b,
+		repo:     repo,
+		broker:   b,
+		logger:   logger,
+		workerID: workerID,
 	}
 }
 
 func (p *Processor) ProcessBatch(ctx context.Context, batchSize int) (int, error) {
-	events, err := p.repo.FetchPending(ctx, batchSize)
+	events, err := p.repo.ClaimBatch(ctx, batchSize, p.workerID, claimLockDuration)
 	if err != nil {
-		return 0, fmt.Errorf("outbox: failed to fetch pending events: %w", err)
+		return 0, fmt.Errorf("outbox: failed to claim pending events: %w", err)
 	}
 
 	var firstErr error
 	for _, event := range events {
 		if err := p.processOne(ctx, event); err != nil {
-			log.Printf("outbox: failed to process event %s (%s): %v", event.ID, event.EventType, err)
+			p.logger.Error("outbox: failed to process event",
+				"event_id", event.ID,
+				"event_type", event.EventType,
+				"error", err,
+			)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -49,15 +63,26 @@ func (p *Processor) ProcessBatch(ctx context.Context, batchSize int) (int, error
 	return len(events), firstErr
 }
 
+// processOne publishes a single already-claimed event. No database
+// transaction is open at any point during this function - the claim
+// (which held row locks only for its own statement) already committed
+// before ClaimBatch returned, and MarkPublished/MarkFailed below are each
+// their own independent statement. Network I/O (Publish) never happens
+// with a DB lock held.
 func (p *Processor) processOne(ctx context.Context, event *models.OutboxEvent) error {
 	headers, err := decodeHeaders(event.Headers)
 	if err != nil {
 		return p.fail(ctx, event, fmt.Errorf("invalid headers: %w", err))
 	}
 
-	routingKey := string(event.EventType)
+	envelope := models.EventEnvelope{
+		EventID:   event.ID,
+		EventType: event.EventType,
+		Payload:   event.Payload,
+		Headers:   headers,
+	}
 
-	if err := p.broker.Publish(ctx, routingKey, event.Payload, headers); err != nil {
+	if err := p.broker.Publish(ctx, envelope); err != nil {
 		return p.fail(ctx, event, err)
 	}
 
@@ -76,7 +101,12 @@ func (p *Processor) fail(ctx context.Context, event *models.OutboxEvent, cause e
 	}
 
 	if event.RetryCount+1 >= maxRetries {
-		log.Printf("outbox: event %s (%s) has exceeded max retries (%d): %v", event.ID, event.EventType, maxRetries, cause)
+		p.logger.Error("outbox: event exceeded max retries",
+			"event_id", event.ID,
+			"event_type", event.EventType,
+			"max_retries", maxRetries,
+			"error", cause,
+		)
 	}
 
 	return cause

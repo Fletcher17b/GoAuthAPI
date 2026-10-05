@@ -2,7 +2,7 @@ package outbox
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -15,6 +15,7 @@ type WorkerConfig struct {
 type Worker struct {
 	processor *Processor
 	cfg       WorkerConfig
+	logger    *slog.Logger
 
 	stopped chan struct{}
 }
@@ -38,7 +39,7 @@ func (w *Worker) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("outbox: worker shutting down")
+			w.logger.Info("outbox: worker shutting down")
 			return
 		case <-ticker.C:
 			w.tick(ctx)
@@ -46,7 +47,7 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-func NewWorker(processor *Processor, cfg WorkerConfig) *Worker {
+func NewWorker(processor *Processor, cfg WorkerConfig, logger *slog.Logger) *Worker {
 	defaults := defaultWorkerConfig()
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaults.PollInterval
@@ -58,6 +59,7 @@ func NewWorker(processor *Processor, cfg WorkerConfig) *Worker {
 	return &Worker{
 		processor: processor,
 		cfg:       cfg,
+		logger:    logger,
 		stopped:   make(chan struct{}),
 	}
 }
@@ -69,10 +71,10 @@ func (w *Worker) Stopped() <-chan struct{} {
 func (w *Worker) tick(ctx context.Context) {
 	processed, err := w.processor.ProcessBatch(ctx, w.cfg.BatchSize)
 	if err != nil {
-		log.Printf("outbox: batch of %d event(s) processed with errors: %v", processed, err)
+		w.logger.Error("outbox: batch processed with errors", "processed", processed, "error", err)
 		return
 	}
 	if processed > 0 {
-		log.Printf("outbox: processed %d event(s)", processed)
+		w.logger.Info("outbox: batch processed", "processed", processed)
 	}
 }

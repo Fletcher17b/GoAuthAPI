@@ -2,6 +2,7 @@ package auth
 
 import (
 	"AuthAPI/main/internal/auth/app"
+	"AuthAPI/main/internal/crypto"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -100,16 +101,10 @@ type SignupResponseRefactor struct {
 
 //////////////////////////////////
 
-type EmailVerificationRequestPayload struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
-
-	EventID         uuid.UUID `json:"event_id"`
-	VerificationUrl string    `json:"verification_url"`
-	ExpiresAt       time.Time `json:"expires_at"`
-}
-
-//////////////////////////////////
+var dummyPasswordHash = func() string {
+	h, _ := crypto.HashPassword("timing-equalizer")
+	return h
+}()
 
 func VerifyEmailURLConstructor(BaseURL, token string) string {
 	return fmt.Sprintf("%s/verify-email?t=%s", BaseURL, token)
@@ -127,16 +122,20 @@ func writeJSON(
 }
 
 func ClientIP(r *http.Request) string {
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	// Whole system should sit behind an API-gateway
+	// So the IP in header should be trustable if
+	// gateway is configured correctly
+	ip := strings.TrimSpace(r.Header.Get("X-Real-IP"))
+
+	if parsed := net.ParseIP(ip); parsed != nil {
+		return parsed.String()
 	}
 
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return xr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
 
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
 }
 
@@ -213,7 +212,9 @@ func signupHandler(s *Service) http.HandlerFunc {
 		}
 		tenant, success := TenantFromContext(r.Context())
 		if !success {
-			/* nts: TODO: Write response when tenant not found */
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "no tenant header",
+			})
 			return
 		}
 
@@ -225,6 +226,7 @@ func signupHandler(s *Service) http.HandlerFunc {
 			tenant.ID,
 		)
 		if err != nil {
+			println(err.Error())
 			respondJSONError(w, err)
 			return
 		}
@@ -263,16 +265,6 @@ func verifyEmailHandler(logger *slog.Logger, s *Service) http.HandlerFunc {
 		}
 	}
 }
-
-/*
-	nts TODO: we need to refactor this shit, and its service:
-	gave a 204 on:
-	{
-    	"email": "oiramgrillol.2@gmail.com",
-    	"username": "Mairo",
-    	"password": "supersecret1234"
-	}
-*/
 
 // resendVerificationHandler godoc
 // @Summary      Resend verification email
@@ -349,7 +341,8 @@ func loginHandler(s *Service) http.HandlerFunc {
 			return
 		}
 
-		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password)
+		r_ip := ClientIP(r)
+		token, refresh_token, clientID, err := s.Login(r.Context(), req.Email, req.Password, r_ip)
 		if err != nil {
 			respondJSONError(w, err)
 			return
@@ -532,7 +525,7 @@ func changePasswordHandler(s *Service) http.HandlerFunc {
 		}
 		request_ip := ClientIP(r)
 
-		err := s.ChangePasword(r.Context(), req, request_ip)
+		err := s.ChangePassword(r.Context(), req, request_ip)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: err.Error(),
@@ -675,7 +668,7 @@ func meHandler() http.HandlerFunc {
 	}
 }
 
-func healthhander(logger *slog.Logger, db *sql.DB) http.HandlerFunc {
+func healthhandler(logger *slog.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		if err := db.PingContext(r.Context()); err != nil {
@@ -734,20 +727,20 @@ func RegisterRoutes(
 		app.OutboxRepo,
 		db,
 		app_url,
+		*app.RedisLimiter,
 	)
 
 	r.Route("/auth", func(r chi.Router) {
 
-		/*  Two endpoints one to request and one to verify
-		nts: TODO: group this two into better URL paths
-		*/
+		/*  Two endpoints one to request and one to verify		*/
 		r.Group(func(r chi.Router) {
 			r.Use(TenantMiddleware(app.TenantRepo))
+			r.Use(RateLimitMiddleware(*app.RedisLimiter, app.Logger))
 			r.Post("/password-change", changePasswordHandler(service))
 			r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
 			r.Post("/reset-password", resetPasswordHandler(service))
 
-			r.Post("/register", registerHandler(service))
+			//r.Post("/register", registerHandler(service))
 			r.Post("/signup", signupHandler(service))
 			r.Post("/login", loginHandler(service))
 			r.Post("/refresh", refreshHandler(service))
@@ -761,9 +754,35 @@ func RegisterRoutes(
 			r.Use(JWTMiddleware(app.PublicKey))
 			r.Get("/me", meHandler())
 			r.Post("/revoke-all", revokeAllHandler(service))
+
 		})
 
-		r.Get("/health", healthhander(app.Logger, db))
+		r.Get("/health", healthhandler(app.Logger, db))
 		r.Get("/swagger/*", httpSwagger.WrapHandler)
 	})
 }
+
+// Legacy types:
+/* type EmailVerificationRequestPayload struct {
+	UserID uuid.UUID `json:"user_id"`
+	Email  string    `json:"email"`
+
+	EventID         uuid.UUID `json:"event_id"`
+	VerificationUrl string    `json:"verification_url"`
+	ExpiresAt       time.Time `json:"expires_at"`
+} */
+
+/*
+	 type PasswordChangePayload struct {
+		Email  string `json:"email"`
+		Tenant string `json:"tenant"`
+		IP     string `json:"ip"`
+	}
+*/
+/* type PasswordResetRequestedPayload struct {
+	Email     string `json:"email"`
+	ResetLink string `json:"reset_link"`
+	IP        string `json:"ip"`
+	Tenant    string `json:"tenant"`
+}
+*/

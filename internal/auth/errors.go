@@ -23,6 +23,8 @@ var (
 	ErrTenantHeaderMissing = errors.New("missing tenant header")
 	ErrTenantNotFound      = errors.New("tenant not found")
 	ErrTenantInactive      = errors.New("tenant is not active")
+
+	ErrRateLimited = errors.New("Too many requests")
 )
 
 func mapAuthError(err error) (int, string) {

@@ -19,6 +19,7 @@ type RefreshTokenRepository interface {
 
 	CreateResetTokenTx(ctx context.Context, exec dbtx.DBTX, rtkn models.PasswordResetToken) error
 	FindValidResetTokenTx(ctx context.Context, exec dbtx.DBTX, hash string, tenant uuid.UUID) (*models.PasswordResetToken, error)
+	RevokePreviousResetTokens(ctx context.Context, exec dbtx.DBTX, tenant uuid.UUID, user uuid.UUID) error
 	MarkResetTokenUsedTx(ctx context.Context, exec dbtx.DBTX, tokenID uuid.UUID) error
 }
 

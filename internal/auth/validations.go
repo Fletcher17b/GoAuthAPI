@@ -18,7 +18,7 @@ func validateEmail(email string) error {
 }
 
 func validatePassword(password string) error {
-	if len(password) <= 3 {
+	if len(password) <= 9 {
 		return ErrShortPassword
 	}
 	return nil

@@ -77,6 +77,30 @@ services:
     mem_limit: 1g
 
 
+  redis:
+    container_name: ratelimit_cache
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save "" --appendonly no
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+    
+
 
 
 secrets:
@@ -88,6 +112,8 @@ secrets:
 
 volumes:
   postgres_data:
+  redis_data:
+    driver: local
 
 networks:
   backend:
