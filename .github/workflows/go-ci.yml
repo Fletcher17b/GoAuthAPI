@@ -75,6 +75,26 @@ jobs:
           RABBITMQ_EXCHANGE="authexchange"
           EOF
 
+          cat > .env.mailservice <<EOF
+          APP_ENV=development
+          LOG_LEVEL=debug
+              
+          SMTP_HOST="${SMTP_HOST}"
+          SMTP_PORT=587
+          SMTP_USER="${SMTP_USER}"
+          SMTP_APP_PASSWORD="${SMTP_APP_PASSWORD}"
+          SMTP_FROM="Auth Service <no-reply@grilloworks.com>"
+              
+          REST_ENDPOINTS="TRUE"
+          APP_BASE_URL="http://localhost:8081"
+              
+          RABBITMQ_IMPLEMENTATION="TRUE"
+          RABBITMQ_URL="amqp://guest:guest@rabbitmq:5672/"
+          RABBITMQ_EXCHANGE="authexchange"
+          EOF
+              
+          chmod 600 .env.compose .env.mailservice
+
       - name: Configure Docker Compose for CI
         run: echo "COMPOSE_FILE=docker-compose-ci.yml" >> "$GITHUB_ENV"
 
