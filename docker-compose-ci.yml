@@ -80,7 +80,6 @@ services:
         max-file: "3"
     networks:
       - backend
-      - api-gateway
     secrets:
       - authapi_private_key
       - authapi_public_key

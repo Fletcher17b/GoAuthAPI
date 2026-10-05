@@ -71,8 +71,8 @@ jobs:
 
           CORS_ALLOWED_ORIGINS="http://localhost:8080,http://localhost:8081,http://127.0.0.1:5500"
 
-          RABBITMQ_URL=""
-          RABBITMQ_EXCHANGE=
+          RABBITMQ_URL="amqp://guest:guest@rabbitmq:5672/"
+          RABBITMQ_EXCHANGE="authexchange"
           EOF
 
       - name: Configure Docker Compose for CI
@@ -80,9 +80,8 @@ jobs:
 
       - name: Start required services
         run: |
-          docker compose config --services
-          docker compose up -d db rabbitmq
-          docker compose ps
+          docker compose -f docker-compose-ci.yml up -d db rabbitmq redis
+          docker compose -f docker-compose-ci.yml ps
 
       - name: Wait for database to become healthy
         run: |
