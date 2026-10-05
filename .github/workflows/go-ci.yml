@@ -75,8 +75,12 @@ jobs:
           RABBITMQ_EXCHANGE=
           EOF
 
-      - name: Start required services with Docker Compose
+      - name: Configure Docker Compose for CI
+        run: echo "COMPOSE_FILE=docker-compose-ci.yml" >> "$GITHUB_ENV"
+
+      - name: Start required services
         run: |
+          docker compose config --services
           docker compose up -d db rabbitmq
           docker compose ps
 
