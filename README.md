@@ -8,8 +8,8 @@ A standalone, **multi-tenant** authentication service written in Go. Issues shor
 - **Signup / Login** — bcrypt (cost 12) password hashing, email verification with resend support, constant-time-ish login failure path (a dummy hash is compared for unknown users)
 - **Password management** — change password, request a reset email, and reset with a one-time token
 - **JWT access tokens** — RS256-signed, 15-minute lifetime, verified via a public key so downstream services can validate tokens without calling back into AuthAPI
-- **Refresh token rotation** — each refresh issues a new token and revokes the old one; **reuse of an already-rotated token revokes the entire token family**, following the [OAuth 2.0 Security BCP](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics) refresh token rotation pattern. Refresh tokens last 30 days and are stored as HMAC-SHA256 hashes (keyed with `TOKEN_SECRET`), never in plaintext
-- **Redis-backed rate limiting & lockout** — Lua scripts run atomically in Redis to throttle login, signup, and password-reset-request attempts per IP, per account, and per IP+account pair. Repeated login failures trigger escalating cool-downs and a "suspicious activity" event (see [Rate limiting](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#rate-limiting))
+- **Refresh token rotation** — each refresh issues a new token and revokes the old one; **reuse of an already-rotated token revokes the entire token family**, following the OAuth 2.0 Security BCP refresh token rotation pattern. Refresh tokens last 30 days and are stored as HMAC-SHA256 hashes (keyed with `TOKEN_SECRET`), never in plaintext
+- **Redis-backed rate limiting & lockout** — Lua scripts run atomically in Redis to throttle login, signup, and password-reset-request attempts per IP, per account, and per IP+account pair. Repeated login failures trigger escalating cool-downs and a "suspicious activity" event (see Rate limiting section)
 - **Outbox pattern** — domain events (user created, email verification requested, password reset requested, login events, …) are written transactionally alongside application state and published to RabbitMQ by a background worker, with publisher confirms, exponential backoff, and multi-worker-safe row claiming
 - **Structured logging** — JSON logs in production, colorized human-readable logs in development, via `log/slog`
 - **Request correlation IDs** — every request gets an `X-Request-ID` (UUIDv7 if not supplied), propagated through logs for tracing
@@ -42,7 +42,7 @@ A standalone, **multi-tenant** authentication service written in Go. Issues shor
 - **Redis** (required — the service pings Redis at startup and will not boot without it)
 - SMTP credentials (the config loader requires `SMTP_HOST`, `SMTP_USER`, `SMTP_APP_PASSWORD`, and `SMTP_FROM`, internal SMTP is deprecated and is in process of removal)
 - PostgreSQL 
-- RabbitMQ (only used with the `postgres` driver — see [Outbox / messaging](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#outbox--messaging))
+- RabbitMQ (only used with the `postgres` driver — see Outbox / messaging section)
 - Docker (optional, for `docker compose` and for running the Postgres-backed tests)
 
 ### 1. Clone and configure
@@ -53,7 +53,7 @@ cd AuthAPI
 cp .env.example .env
 ```
 
-Fill in `.env` — see [Configuration](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#configuration) below for what each variable does.
+Fill in `.env` — see Configuration below for what each variable does.
 
 ### 2. Generate RSA signing keys
 
@@ -71,7 +71,7 @@ Key lookup order is: the `AUTH_PRIVATE_KEY_PATH` / `AUTH_PUBLIC_KEY_PATH` env va
 
 ### 3. Provision a tenant
 
-Every public endpoint requires an `X-Tenant` header that matches an **active** row in the `tenants` table. There is currently no API for creating tenants (see [Roadmap](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#roadmap--known-gaps)), so insert one directly after the first startup. A commented-out example is included at the bottom of the tenants section in `migrations/postgres/001_init.sql`:
+Every public endpoint requires an `X-Tenant` header that matches an **active** row in the `tenants` table. There is currently no API for creating tenants (see Roadmap section), so insert one directly after the first startup. A commented-out example is included at the bottom of the tenants section in `migrations/postgres/001_init.sql`:
 
 ```sql
 INSERT INTO tenants (
@@ -117,23 +117,23 @@ The service listens on `:8081`.
 
 All configuration is via environment variables (see `.env.example` for a starting point). Key ones:
 
-| Variable                                                                    | Description                                                                                                               | Default                              |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `APP_ENV`                                                                   | `development`, `production`, or `test` — controls log format (colorized text vs. JSON)                                    | **required**                         |
-| `LOG_LEVEL`                                                                 | Minimum log severity: `debug`, `info`, `warn`, `error`                                                                    | **required**                         |
-| `APP_BASE_URL`                                                              | Base URL used in generated links (e.g. email verification)                                                                | **required**                         |
-| `CORS_ALLOWED_ORIGINS`                                                      | Comma-separated list of allowed CORS origins (if empty, all origins are allowed _without_ credentials)                    | —                                    |
-| `DB_DRIVER`                                                                 | `postgres` or `sqlite`                                                                                                    | `sqlite`                             |
-| `PSQL_HOST` / `PSQL_PORT` / `PSQL_USER` / `PSQL_PASSWORD` / `PSQL_DATABASE` | PostgreSQL connection settings. If any are missing, the service logs a warning and **falls back to SQLite**               | —                                    |
-| `SQLITE_PATH`                                                               | SQLite file path                                                                                                          | `auth.db`                            |
-| `REDIS_ADDR`                                                                | Redis address, e.g. `localhost:6379`                                                                                      | **required**                         |
-| `REDIS_PROTOCOL`                                                            | Redis protocol version (e.g. `3`)                                                                                         | **required**                         |
-| `REDIS_DB`                                                                  | Redis database index                                                                                                      | **required**                         |
-| `TOKEN_SECRET`                                                              | Secret used to HMAC-hash refresh/verification/reset tokens and sign client IDs                                            | **required**                         |
-| `AUTH_PRIVATE_KEY_PATH` / `AUTH_PUBLIC_KEY_PATH`                            | RSA key locations (see [step 2](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#2-generate-rsa-signing-keys)) | `creds/*.pem`                        |
-| `RABBITMQ_URL`                                                              | RabbitMQ connection URL (only used with the `postgres` driver)                                                            | `amqp://guest:guest@localhost:5672/` |
-| `RABBITMQ_EXCHANGE`                                                         | Topic exchange events are published to                                                                                    | `authapi.events`                     |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_APP_PASSWORD` / `SMTP_FROM` | SMTP settings (deprecated, removal in progress)                                                                           | —                                    |
+| Variable                                                                    | Description                                                                                                 | Default                              |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `APP_ENV`                                                                   | `development`, `production`, or `test` — controls log format (colorized text vs. JSON)                      | **required**                         |
+| `LOG_LEVEL`                                                                 | Minimum log severity: `debug`, `info`, `warn`, `error`                                                      | **required**                         |
+| `APP_BASE_URL`                                                              | Base URL used in generated links (e.g. email verification)                                                  | **required**                         |
+| `CORS_ALLOWED_ORIGINS`                                                      | Comma-separated list of allowed CORS origins (if empty, all origins are allowed _without_ credentials)      | —                                    |
+| `DB_DRIVER`                                                                 | `postgres` or `sqlite`                                                                                      | `sqlite`                             |
+| `PSQL_HOST` / `PSQL_PORT` / `PSQL_USER` / `PSQL_PASSWORD` / `PSQL_DATABASE` | PostgreSQL connection settings. If any are missing, the service logs a warning and **falls back to SQLite** | —                                    |
+| `SQLITE_PATH`                                                               | SQLite file path                                                                                            | `auth.db`                            |
+| `REDIS_ADDR`                                                                | Redis address, e.g. `localhost:6379`                                                                        | **required**                         |
+| `REDIS_PROTOCOL`                                                            | Redis protocol version (e.g. `3`)                                                                           | **required**                         |
+| `REDIS_DB`                                                                  | Redis database index                                                                                        | **required**                         |
+| `TOKEN_SECRET`                                                              | Secret used to HMAC-hash refresh/verification/reset tokens and sign client IDs                              | **required**                         |
+| `AUTH_PRIVATE_KEY_PATH` / `AUTH_PUBLIC_KEY_PATH`                            | RSA key locations                                                                                           | `creds/*.pem`                        |
+| `RABBITMQ_URL`                                                              | RabbitMQ connection URL (only used with the `postgres` driver)                                              | `amqp://guest:guest@localhost:5672/` |
+| `RABBITMQ_EXCHANGE`                                                         | Topic exchange events are published to                                                                      | `authapi.events`                     |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_APP_PASSWORD` / `SMTP_FROM` | SMTP settings (deprecated, removal in progress)                                                             | —                                    |
 
 ## API
 
@@ -188,7 +188,7 @@ Rate limiting is enforced by `RateLimitMiddleware` using atomic Redis Lua script
 |`POST /auth/signup`|Per-IP attempt throttling|
 |`GET /auth/send-resetemail`|Per-IP and per-account throttling to prevent reset-email spam|
 
-If Redis errors out during a check, the failure is logged and the request is allowed through (fail-open). Per-tenant, configurable rate policies are modelled but not yet implemented (see [Roadmap](https://claude.ai/chat/5cdf9c1a-72e6-4011-972d-952668408ea2#roadmap--known-gaps)).
+If Redis errors out during a check, the failure is logged and the request is allowed through (fail-open). Per-tenant, configurable rate policies are modelled but not yet implemented (see Roadmap section).
 
 ## Refresh token reuse detection
 
