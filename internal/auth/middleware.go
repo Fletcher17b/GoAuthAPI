@@ -161,7 +161,7 @@ func TenantMiddleware(repo tenants.TenantRepository) func(http.Handler) http.Han
 
 			tenant, err := repo.FindByTenantName(r.Context(), tenantName)
 			if err != nil {
-				http.Error(w, ErrTenantNotFound.Error(), http.StatusUnauthorized)
+				http.Error(w, ErrTenantNotFound.Error(), http.StatusForbidden)
 				return
 			}
 

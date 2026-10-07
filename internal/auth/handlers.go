@@ -125,18 +125,18 @@ func ClientIP(r *http.Request) string {
 	// Whole system should sit behind an API-gateway
 	// So the IP in header should be trustable if
 	// gateway is configured correctly
-	ip := strings.TrimSpace(r.Header.Get("X-Real-IP"))
-
-	if parsed := net.ParseIP(ip); parsed != nil {
-		return parsed.String()
+	if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != nil {
+		return ip.String()
 	}
 
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if err == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			return ip.String()
+		}
 	}
 
-	return host
+	return ""
 }
 
 // registerHandler godoc
@@ -717,17 +717,9 @@ func RegisterRoutes(
 	/* nts: this look fucking ugly use the fucking struct */
 
 	service := NewService(
-		app.UserRepo,
-		app.RefreshRepo,
-		app.TenantRepo,
-		app.EmailRepo,
-		app.Mailer,
-		app.PrivateKey,
-		app.TokenSecret,
-		app.OutboxRepo,
 		db,
 		app_url,
-		app.RedisLimiter,
+		app,
 	)
 
 	r.Route("/auth", func(r chi.Router) {

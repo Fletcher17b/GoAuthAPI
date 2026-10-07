@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,15 +10,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/metrics"
-	"AuthAPI/main/internal/auth/ratelimiter"
-	auth "AuthAPI/main/internal/auth/refresh"
-	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/crypto"
 	"AuthAPI/main/internal/models"
-	"AuthAPI/main/internal/outbox"
-	"AuthAPI/main/internal/users"
 )
 
 /*
@@ -32,24 +27,11 @@ const ErrInvalidToken string = "Invalid Token"
 */
 
 type Service struct {
-	db *sql.DB
+	db      *sql.DB
+	app_url string
 
-	users       users.Repository
-	refreshRepo auth.RefreshTokenRepository
-	tenantRepo  tenants.TenantRepository
-
-	emailVerifyrepo mail.EmailVerificationRepository
-	mailer          mail.Mailer
-
-	privateKey *rsa.PrivateKey
-	PublicKey  *rsa.PublicKey
-
-	tokenSecret string
-
-	outboxrepo outbox.OutboxRepo
-	app_url    string
-
-	rateLimiter ratelimiter.RedisLimiter
+	mailer mail.Mailer
+	app    app.App
 }
 
 const suspiciousLoginNotifyAt int64 = 5
@@ -64,35 +46,16 @@ const (
 */
 
 func NewService(
-	users users.Repository,
-	refreshRepo auth.RefreshTokenRepository,
-	tenantRepo tenants.TenantRepository,
-
-	emailVerifyrepo mail.EmailVerificationRepository,
-	mailer mail.Mailer,
-
-	privateKey *rsa.PrivateKey,
-	tokenSecret string,
-
-	outboxrepo outbox.OutboxRepo,
 	db *sql.DB,
 	app_url string,
 
-	rateLimiter ratelimiter.RedisLimiter,
+	app app.App,
 
 ) *Service {
 	return &Service{
-		users:           users,
-		refreshRepo:     refreshRepo,
-		emailVerifyrepo: emailVerifyrepo,
-		tenantRepo:      tenantRepo,
-		mailer:          mailer,
-		privateKey:      privateKey,
-		tokenSecret:     tokenSecret,
-		outboxrepo:      outboxrepo,
-		db:              db,
-		app_url:         app_url,
-		rateLimiter:     rateLimiter,
+		db:      db,
+		app_url: app_url,
+		app:     app,
 	}
 }
 
@@ -102,7 +65,7 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		return err
 	}
 
-	if s.emailVerifyrepo == nil {
+	if s.app.EmailRepo == nil {
 		panic("emailVerifyrepo not configured")
 	}
 	if s.mailer == nil {
@@ -125,12 +88,12 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		UpdatedAt:    now,
 	}
 
-	if err := s.users.Create(ctx, user); err != nil {
+	if err := s.app.UserRepo.Create(ctx, user); err != nil {
 		return wrapUserCreateError(err)
 	}
 
 	rawToken := uuid.NewString()
-	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+	tokenHash := crypto.HashToken(rawToken, s.app.TokenSecret)
 
 	tokenid, err := uuid.NewV7()
 	if err != nil {
@@ -144,7 +107,7 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		CreatedAt: now,
 	}
 
-	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+	if err := s.app.EmailRepo.Create(ctx, token); err != nil {
 		return err
 	}
 
@@ -200,7 +163,7 @@ func (s *Service) signUpDataBuilder(
 
 	// Email verification token
 	emailPlainToken, emailVerificationToken, err :=
-		GenerateEmailVerificationToken(userID, s.tokenSecret)
+		GenerateEmailVerificationToken(userID, s.app.TokenSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +181,7 @@ func (s *Service) signUpDataBuilder(
 			uuid.Nil,
 			tenantID,
 			clientID,
-			s.tokenSecret,
+			s.app.TokenSecret,
 		)
 	if err != nil {
 		return nil, err
@@ -318,19 +281,19 @@ func (s *Service) signUpTransaction(
 		_ = tx.Rollback()
 	}()
 
-	if err := s.users.CreateTx(ctx, tx, user); err != nil {
+	if err := s.app.UserRepo.CreateTx(ctx, tx, user); err != nil {
 		return wrapUserCreateError(err)
 	}
-	if err := s.emailVerifyrepo.CreateTx(ctx, tx, emailtoken); err != nil {
+	if err := s.app.EmailRepo.CreateTx(ctx, tx, emailtoken); err != nil {
 		return err
 	}
-	if err := s.refreshRepo.CreateTx(ctx, tx, refresh); err != nil {
+	if err := s.app.RefreshRepo.CreateTx(ctx, tx, refresh); err != nil {
 		return err
 	}
-	if err := s.outboxrepo.CreateTx(ctx, tx, outbox); err != nil {
+	if err := s.app.OutboxRepo.CreateTx(ctx, tx, outbox); err != nil {
 		return err
 	}
-	if err := s.outboxrepo.CreateTx(ctx, tx, outbox_mail); err != nil {
+	if err := s.app.OutboxRepo.CreateTx(ctx, tx, outbox_mail); err != nil {
 		return err
 	}
 
@@ -342,7 +305,7 @@ func (s *Service) signUpTransaction(
 func (s *Service) signupResponseBuilder(
 	user *models.User, userinfo UserInfo, refreshToken string,
 ) (*SignupResponseRefactor, error) {
-	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
+	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.app.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +330,7 @@ func (s *Service) SignupService(
 	if err != nil {
 		return nil, err
 	}
-	clientID := signClientID(cId, []byte(s.tokenSecret))
+	clientID := signClientID(cId, []byte(s.app.TokenSecret))
 	tenant_model, OK := TenantFromContext(ctx)
 	if !OK {
 		return nil, errors.New("couldnt get tenant")
@@ -398,9 +361,9 @@ func (s *Service) SignupService(
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
-	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+	tokenHash := crypto.HashToken(rawToken, s.app.TokenSecret)
 
-	token, err := s.emailVerifyrepo.FindValidByHash(ctx, tokenHash)
+	token, err := s.app.EmailRepo.FindValidByHash(ctx, tokenHash)
 	if err != nil {
 		return ErrInvalidVerificationToken
 	}
@@ -411,11 +374,11 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 
 	now := time.Now()
 
-	if err := s.emailVerifyrepo.MarkUsed(ctx, token.ID, now); err != nil {
+	if err := s.app.EmailRepo.MarkUsed(ctx, token.ID, now); err != nil {
 		return err
 	}
 
-	return s.users.ActivateUser(ctx, token.UserID)
+	return s.app.UserRepo.ActivateUser(ctx, token.UserID)
 }
 
 func (s *Service) ResendVerification(ctx context.Context, email string) error {
@@ -423,7 +386,7 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	if !ok || tenant == nil {
 		return ErrTenantNotFound
 	}
-	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
+	user, err := s.app.UserRepo.FindByEmail(ctx, email, tenant.ID)
 	if err != nil {
 		return nil
 	}
@@ -434,10 +397,10 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 		return nil
 	}
 
-	_ = s.emailVerifyrepo.DeleteByUserID(ctx, user.ID)
+	_ = s.app.EmailRepo.DeleteByUserID(ctx, user.ID)
 
 	rawToken := uuid.NewString()
-	tokenHash := crypto.HashToken(rawToken, s.tokenSecret)
+	tokenHash := crypto.HashToken(rawToken, s.app.TokenSecret)
 
 	tokenid, err := uuid.NewV7()
 	if err != nil {
@@ -452,7 +415,7 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.emailVerifyrepo.Create(ctx, token); err != nil {
+	if err := s.app.EmailRepo.Create(ctx, token); err != nil {
 		return err
 	}
 
@@ -523,7 +486,7 @@ func (s *Service) Login(
 		return ErrInvalidCredentials
 	}
 
-	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
+	user, err := s.app.UserRepo.FindByEmail(ctx, email, tenant.ID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return "", "", "", err
@@ -532,7 +495,7 @@ func (s *Service) Login(
 	}
 
 	if user == nil || user.PasswordHash == nil {
-		_, errf = s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		_, errf = s.app.RedisLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
 		if errf != nil {
 			return "", "", "", errf
 		}
@@ -541,7 +504,7 @@ func (s *Service) Login(
 	}
 
 	if err := crypto.ComparePassword(*user.PasswordHash, password); err != nil {
-		send_suspiciousactivityemail, errf = s.rateLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
+		send_suspiciousactivityemail, errf = s.app.RedisLimiter.RecordLoginFailure(ctx, req_ip, email, suspiciousLoginNotifyAt) // nts: TODO: consumer policy enters here
 		if errf != nil {
 			return "", "", "", errf
 		}
@@ -557,7 +520,7 @@ func (s *Service) Login(
 				return "", "", "", loginFailed()
 			}
 
-			if err := s.outboxrepo.CreateTx(ctx, tx, susloginevent); err != nil {
+			if err := s.app.OutboxRepo.CreateTx(ctx, tx, susloginevent); err != nil {
 				return "", "", "", err
 			}
 
@@ -574,7 +537,7 @@ func (s *Service) Login(
 		return "", "", "", ErrUserLockedout
 	}
 
-	access, err := GenerateAccessToken(user.ID, user.Email, s.privateKey)
+	access, err := GenerateAccessToken(user.ID, user.Email, s.app.PrivateKey)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -583,14 +546,14 @@ func (s *Service) Login(
 	if err != nil {
 		return "", "", "", err
 	}
-	clientID := signClientID(cId, []byte(s.tokenSecret))
+	clientID := signClientID(cId, []byte(s.app.TokenSecret))
 
 	familyID, err := uuid.NewV7()
 	if err != nil {
 		return "", "", "", err
 	}
 	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
-	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, user.Tenant_ID, clientID, s.tokenSecret)
+	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, user.Tenant_ID, clientID, s.app.TokenSecret)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -635,11 +598,11 @@ func (s *Service) Login(
 		_ = tx.Rollback()
 	}()
 
-	if err := s.outboxrepo.CreateTx(ctx, tx, LoginOutbox); err != nil {
+	if err := s.app.OutboxRepo.CreateTx(ctx, tx, LoginOutbox); err != nil {
 		return "", "", "", err
 	}
 
-	if err := s.refreshRepo.CreateTx(ctx, tx, refreshModel); err != nil {
+	if err := s.app.RefreshRepo.CreateTx(ctx, tx, refreshModel); err != nil {
 		return "", "", "", err
 	}
 
@@ -681,7 +644,7 @@ func (s *Service) enqueueNewDeviceEmailTx( //nolint:unused
 		return err
 	}
 
-	return s.outboxrepo.CreateTx(ctx, tx, &models.OutboxEvent{
+	return s.app.OutboxRepo.CreateTx(ctx, tx, &models.OutboxEvent{
 		ID:            eventID,
 		AggregateType: "user",
 		AggregateID:   user.ID,
@@ -699,7 +662,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		return "", nil, ErrTenantNotFound
 	}
 
-	hash := crypto.HashToken(refreshToken, s.tokenSecret)
+	hash := crypto.HashToken(refreshToken, s.app.TokenSecret)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", nil, err
@@ -708,7 +671,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		_ = tx.Rollback()
 	}()
 
-	old, err := s.refreshRepo.FindbyHash(ctx, tx, hash, tenant.ID)
+	old, err := s.app.RefreshRepo.FindbyHash(ctx, tx, hash, tenant.ID)
 	if err != nil {
 		return "", nil, ErrInvalidToken
 	}
@@ -718,7 +681,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 	}
 
 	if old.RevokedAt != nil {
-		err = s.refreshRepo.RevokeAllForFamily(ctx, tx, old.FamilyID, tenant.ID)
+		err = s.app.RefreshRepo.RevokeAllForFamily(ctx, tx, old.FamilyID, tenant.ID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -731,7 +694,7 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		return "", nil, ErrRefreshReuse
 	}
 
-	if err := s.refreshRepo.Revoke(ctx, tx, old.ID, tenant.ID); err != nil {
+	if err := s.app.RefreshRepo.Revoke(ctx, tx, old.ID, tenant.ID); err != nil {
 		return "", nil, err
 	}
 
@@ -741,14 +704,14 @@ func (s *Service) rotateHelper(ctx context.Context, refreshToken string) (string
 		old.ID,
 		tenant.ID,
 		old.ClientID,
-		s.tokenSecret,
+		s.app.TokenSecret,
 	)
 
 	if err != nil {
 		return "", nil, err
 	}
 
-	if err := s.refreshRepo.CreateTx(ctx, tx, model); err != nil {
+	if err := s.app.RefreshRepo.CreateTx(ctx, tx, model); err != nil {
 		return "", nil, err
 	}
 
@@ -765,7 +728,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 		return "", "", time.Time{}, err
 	}
 
-	user, err := s.users.FindByID(ctx, newModel.UserID)
+	user, err := s.app.UserRepo.FindByID(ctx, newModel.UserID)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -773,7 +736,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 	access, err := GenerateAccessToken(
 		user.ID,
 		user.Email,
-		s.privateKey,
+		s.app.PrivateKey,
 	)
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -789,9 +752,9 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 		return ErrTenantNotFound
 	}
 
-	hash := crypto.HashToken(refreshToken, s.tokenSecret)
+	hash := crypto.HashToken(refreshToken, s.app.TokenSecret)
 
-	rt, err := s.refreshRepo.FindValidByHash(ctx, hash, tenant.ID)
+	rt, err := s.app.RefreshRepo.FindValidByHash(ctx, hash, tenant.ID)
 	if err != nil {
 		return ErrInvalidToken
 	}
@@ -805,7 +768,7 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 		_ = tx.Rollback()
 	}()
 
-	if err := s.refreshRepo.Revoke(ctx, tx, rt.ID, tenant.ID); err != nil {
+	if err := s.app.RefreshRepo.Revoke(ctx, tx, rt.ID, tenant.ID); err != nil {
 		return err
 	}
 	err = tx.Commit()
@@ -820,7 +783,7 @@ func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
 	if !ok || tenant == nil {
 		return ErrTenantNotFound
 	}
-	return s.refreshRepo.RevokeAllForUser(ctx, userID, tenant.ID)
+	return s.app.RefreshRepo.RevokeAllForUser(ctx, userID, tenant.ID)
 }
 
 /*
@@ -844,7 +807,7 @@ func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest,
 
 	/* Add here JWT functionality */
 
-	user, err := s.users.FindByEmail(ctx, req.Email, tenant.ID)
+	user, err := s.app.UserRepo.FindByEmail(ctx, req.Email, tenant.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrInvalidCredentials
@@ -869,7 +832,7 @@ func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest,
 		_ = tx.Rollback()
 	}()
 
-	err = s.users.ChangePassword(ctx, tx, user.ID, hashedpassword)
+	err = s.app.UserRepo.ChangePassword(ctx, tx, user.ID, hashedpassword)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrInvalidCredentials
@@ -908,7 +871,7 @@ func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest,
 		NextRetryAt: now.Add(time.Minute * 5),
 	}
 
-	err = s.outboxrepo.CreateTx(ctx, tx, newoutboxevent)
+	err = s.app.OutboxRepo.CreateTx(ctx, tx, newoutboxevent)
 	if err != nil {
 		return err
 	}
@@ -936,7 +899,7 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string, ip str
 	if !ok || tenant == nil {
 		return ErrTenantNotFound
 	}
-	user, err := s.users.FindByEmail(ctx, email, tenant.ID)
+	user, err := s.app.UserRepo.FindByEmail(ctx, email, tenant.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
@@ -944,7 +907,7 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string, ip str
 		return err
 	}
 
-	plainToken, resetModel, err := GeneratePasswordResetToken(user.ID, tenant.ID, s.tokenSecret)
+	plainToken, resetModel, err := GeneratePasswordResetToken(user.ID, tenant.ID, s.app.TokenSecret)
 
 	if err != nil {
 		return err
@@ -996,15 +959,15 @@ func (s *Service) RequestResetPassword(ctx context.Context, email string, ip str
 		_ = tx.Rollback()
 	}()
 
-	if err := s.refreshRepo.CreateResetTokenTx(ctx, tx, *resetModel); err != nil {
+	if err := s.app.RefreshRepo.CreateResetTokenTx(ctx, tx, *resetModel); err != nil {
 		return err
 	}
 
-	if err := s.outboxrepo.CreateTx(ctx, tx, newoutbox); err != nil {
+	if err := s.app.OutboxRepo.CreateTx(ctx, tx, newoutbox); err != nil {
 		return err
 	}
 
-	if err := s.refreshRepo.RevokePreviousResetTokens(ctx, tx, tenant.ID, user.ID); err != nil {
+	if err := s.app.RefreshRepo.RevokePreviousResetTokens(ctx, tx, tenant.ID, user.ID); err != nil {
 		return err
 	}
 
@@ -1027,7 +990,7 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPasswor
 		return ErrTenantNotFound
 	}
 
-	hash := crypto.HashToken(rawToken, s.tokenSecret)
+	hash := crypto.HashToken(rawToken, s.app.TokenSecret)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1037,7 +1000,7 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPasswor
 		_ = tx.Rollback()
 	}()
 
-	resetToken, err := s.refreshRepo.FindValidResetTokenTx(ctx, tx, hash, tenant.ID)
+	resetToken, err := s.app.RefreshRepo.FindValidResetTokenTx(ctx, tx, hash, tenant.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			println("ping")
@@ -1051,19 +1014,19 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPasswor
 		return err
 	}
 
-	if err := s.users.ChangePassword(ctx, tx, resetToken.UserID, hashedPassword); err != nil {
+	if err := s.app.UserRepo.ChangePassword(ctx, tx, resetToken.UserID, hashedPassword); err != nil {
 		return err
 	}
 
-	if err := s.refreshRepo.MarkResetTokenUsedTx(ctx, tx, resetToken.ID); err != nil {
+	if err := s.app.RefreshRepo.MarkResetTokenUsedTx(ctx, tx, resetToken.ID); err != nil {
 		return err
 	}
 
-	if err := s.refreshRepo.RevokeAllForUser(ctx, resetToken.UserID, tenant.ID); err != nil {
+	if err := s.app.RefreshRepo.RevokeAllForUser(ctx, resetToken.UserID, tenant.ID); err != nil {
 		return err
 	}
 
-	user, err := s.users.FindByID(ctx, resetToken.UserID)
+	user, err := s.app.UserRepo.FindByID(ctx, resetToken.UserID)
 	if err != nil {
 		return err
 	}
@@ -1098,7 +1061,7 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPasswor
 		NextRetryAt: now.Add(time.Minute * 5),
 	}
 
-	if err := s.outboxrepo.CreateTx(ctx, tx, confirmEvent); err != nil {
+	if err := s.app.OutboxRepo.CreateTx(ctx, tx, confirmEvent); err != nil {
 		return err
 	}
 

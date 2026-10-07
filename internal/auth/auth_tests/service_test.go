@@ -5,13 +5,16 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"database/sql"
+	"log/slog"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"AuthAPI/main/internal/auth"
+	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/mail"
+	"AuthAPI/main/internal/auth/ratelimiter"
 	"AuthAPI/main/internal/auth/refresh"
 	"AuthAPI/main/internal/auth/tenants"
 	"AuthAPI/main/internal/models"
@@ -20,6 +23,7 @@ import (
 	"AuthAPI/main/internal/users"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,18 +93,25 @@ func newServiceTestSetup(t *testing.T) (svc *auth.Service, db *sql.DB, mailer *f
 	temp := NewFakeMailer()
 	mailer = &temp
 
+	app := app.App{
+		UserRepo:     userRepo,
+		RefreshRepo:  refreshRepo,
+		EmailRepo:    emailVerifyRepo,
+		Mailer:       &mail.SMTPMailer{},
+		PrivateKey:   priv,
+		PublicKey:    &priv.PublicKey,
+		TokenSecret:  "test",
+		OutboxRepo:   outboxRepo,
+		TenantRepo:   tenantRepo,
+		Logger:       slog.Default(),
+		Redisclient:  &redis.Client{},
+		RedisLimiter: &ratelimiter.RedisClient{},
+	}
+
 	svc = auth.NewService(
-		userRepo,
-		refreshRepo,
-		tenantRepo,
-		emailVerifyRepo,
-		mailer,
-		priv,
-		"test-token-secret",
-		outboxRepo,
 		db,
 		"",
-		tests.NoopRateLimiter{},
+		app,
 	)
 
 	ctx = context.WithValue(context.Background(), auth.ContextTenant, tenant)
