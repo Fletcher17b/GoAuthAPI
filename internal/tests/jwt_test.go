@@ -3,6 +3,7 @@ package tests
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"log"
 	"testing"
 	"time"
 
@@ -20,13 +21,21 @@ func genTestKeyPair(t *testing.T) (*rsa.PrivateKey, *rsa.PublicKey) {
 	return priv, &priv.PublicKey
 }
 
+func TestTenantUUID() uuid.UUID {
+	UUID, err := uuid.Parse("00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		log.Fatalf("Failed to parse UUID: %v", err)
+	}
+	return UUID
+}
+
 func TestGenerateAccessToken_ParsesBackWithSameClaims(t *testing.T) {
 	priv, pub := genTestKeyPair(t)
 
 	userID := uuid.New()
 	email := "user@example.com"
 
-	tokenStr, err := auth.GenerateAccessToken(userID, email, priv)
+	tokenStr, err := auth.GenerateAccessToken(userID, email, TestTenantUUID(), priv)
 	require.NoError(t, err)
 	require.NotEmpty(t, tokenStr)
 
@@ -41,7 +50,7 @@ func TestGenerateAccessToken_ParsesBackWithSameClaims(t *testing.T) {
 func TestGenerateAccessToken_SetsExpiryAroundFifteenMinutes(t *testing.T) {
 	priv, pub := genTestKeyPair(t)
 
-	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", priv)
+	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", TestTenantUUID(), priv)
 	require.NoError(t, err)
 
 	claims, err := auth.ParseAccessToken(tokenStr, pub)
@@ -77,7 +86,7 @@ func TestParseAccessToken_RejectsTokenSignedWithWrongKey(t *testing.T) {
 	_, pub := genTestKeyPair(t)
 	otherPriv, _ := genTestKeyPair(t)
 
-	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", otherPriv)
+	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", TestTenantUUID(), otherPriv)
 	require.NoError(t, err)
 
 	_, err = auth.ParseAccessToken(tokenStr, pub)
@@ -87,7 +96,7 @@ func TestParseAccessToken_RejectsTokenSignedWithWrongKey(t *testing.T) {
 func TestParseAccessToken_RejectsTamperedToken(t *testing.T) {
 	priv, pub := genTestKeyPair(t)
 
-	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", priv)
+	tokenStr, err := auth.GenerateAccessToken(uuid.New(), "user@example.com", TestTenantUUID(), priv)
 	require.NoError(t, err)
 	tampered := tamperMiddleSegment(t, tokenStr)
 

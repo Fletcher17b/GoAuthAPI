@@ -65,12 +65,12 @@ func (s *Service) Register(ctx context.Context, email, password string) error {
 		return err
 	}
 
-	if s.app.EmailRepo == nil {
+	/* if s.app.EmailRepo == nil {
 		panic("emailVerifyrepo not configured")
 	}
 	if s.mailer == nil {
 		panic("mailer not configured")
-	}
+	} */
 
 	now := time.Now()
 
@@ -155,7 +155,7 @@ func (s *Service) signUpDataBuilder(
 		ID:           userID,
 		Email:        email,
 		PasswordHash: &hash,
-		Tenant_ID:    tenantID,
+		TenantID:     tenantID,
 		IsActive:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -305,7 +305,7 @@ func (s *Service) signUpTransaction(
 func (s *Service) signupResponseBuilder(
 	user *models.User, userinfo UserInfo, refreshToken string,
 ) (*SignupResponseRefactor, error) {
-	accessToken, err := GenerateAccessToken(user.ID, user.Email, s.app.PrivateKey)
+	accessToken, err := GenerateAccessToken(user.ID, user.Email, user.TenantID, s.app.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -537,7 +537,7 @@ func (s *Service) Login(
 		return "", "", "", ErrUserLockedout
 	}
 
-	access, err := GenerateAccessToken(user.ID, user.Email, s.app.PrivateKey)
+	access, err := GenerateAccessToken(user.ID, user.Email, user.TenantID, s.app.PrivateKey)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -553,7 +553,7 @@ func (s *Service) Login(
 		return "", "", "", err
 	}
 	// nts uuid.nil is used here but further down in the repository layer it is converted to nil and stored that way in the DB
-	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, user.Tenant_ID, clientID, s.app.TokenSecret)
+	refreshPlain, refreshModel, err := GenerateRefreshToken(user.ID, familyID, uuid.Nil, user.TenantID, clientID, s.app.TokenSecret)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -736,6 +736,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (string, str
 	access, err := GenerateAccessToken(
 		user.ID,
 		user.Email,
+		user.TenantID,
 		s.app.PrivateKey,
 	)
 	if err != nil {
@@ -795,7 +796,7 @@ implement IP picking and email send
 /*
 Change password:
 
-	Used when user wants to change its password manualy
+	Used when user wants to change its password willingly
 	User knows its password and account isnt stolen
 */
 func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest, ip string) error {
@@ -804,8 +805,6 @@ func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest,
 	if !ok || tenant == nil {
 		return ErrTenantNotFound
 	}
-
-	/* Add here JWT functionality */
 
 	user, err := s.app.UserRepo.FindByEmail(ctx, req.Email, tenant.ID)
 	if err != nil {

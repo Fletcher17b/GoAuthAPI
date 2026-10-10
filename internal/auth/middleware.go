@@ -20,9 +20,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type ctxKey string
-
-const ContextRequestID ctxKey = "request_id"
+// nts: TODO: Standarize JSON error formats with RFC 7807
 
 const TenantHeader = "X-Tenant"
 
@@ -72,6 +70,8 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 			nts: I dont think requests are gonna have request from the send point so worth
 				 seeing if its better to assign it from here
 		*/
+
+		// nts: TODO: this shit is not logged anywhere
 		reqID := r.Header.Get("X-Request-ID")
 		if reqID == "" {
 			id, err := uuid.NewV7()
@@ -127,6 +127,7 @@ func JWTMiddleware(pub *rsa.PublicKey) func(http.Handler) http.Handler {
 					if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 						return nil, errors.New("unexpected signing method")
 					}
+
 					return pub, nil
 				},
 			)
@@ -142,8 +143,15 @@ func JWTMiddleware(pub *rsa.PublicKey) func(http.Handler) http.Handler {
 				return
 			}
 
+			tenant, ok := TenantFromContext(r.Context())
+			if !ok || claims.ConsumerID != tenant.ID {
+				http.Error(w, "invalid claims", http.StatusUnauthorized)
+				return
+			}
+
 			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID.String())
 			ctx = context.WithValue(ctx, ContextEmail, claims.Email)
+			//ctx = context.WithValue(ctx, ContextEmail, claims.ConsumerID) // nts: TODO:
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

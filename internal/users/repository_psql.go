@@ -43,7 +43,7 @@ func (r *postgresRepo) Create(ctx context.Context, u *models.User) error {
 		u.IsActive,
 		u.CreatedAt,
 		u.UpdatedAt,
-		u.Tenant_ID,
+		u.TenantID,
 	)
 
 	return err
@@ -76,7 +76,7 @@ func (r *postgresRepo) CreateTx(
 		u.IsActive,
 		u.CreatedAt,
 		u.UpdatedAt,
-		u.Tenant_ID,
+		u.TenantID,
 	)
 
 	return err
@@ -120,7 +120,7 @@ func (r *postgresRepo) FindByEmail(
 		&u.CreatedAt,
 		&u.UpdatedAt,
 		&u.LockedAt,
-		&u.Tenant_ID,
+		&u.TenantID,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -167,7 +167,7 @@ func (r *postgresRepo) FindByID(
 		&u.CreatedAt,
 		&u.UpdatedAt,
 		&u.LockedAt,
-		&u.Tenant_ID,
+		&u.TenantID,
 	); err != nil {
 		return nil, err
 	}

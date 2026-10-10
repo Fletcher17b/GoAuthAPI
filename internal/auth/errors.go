@@ -5,6 +5,13 @@ import (
 	"net/http"
 )
 
+// nts: TODO: Implement RFC 9457 http error format here
+
+// Http response errors
+var (
+	ErrInvalidRequestBody = errors.New("invalid request body")
+)
+
 var (
 	ErrUserLockedout            = errors.New("user locked out, reset password")
 	ErrInvalidCredentials       = errors.New("invalid credentials")

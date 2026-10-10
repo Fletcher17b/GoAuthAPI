@@ -17,8 +17,9 @@ import (
 )
 
 type Claims struct {
-	UserID uuid.UUID `json:"userid"`
-	Email  string    `json:"email"`
+	UserID     uuid.UUID `json:"userid"`
+	Email      string    `json:"email"`
+	ConsumerID uuid.UUID `json:"consumer"`
 	jwt.RegisteredClaims
 }
 
@@ -26,15 +27,18 @@ type Claims struct {
 	Access Token expire time: 15 minutes
 */
 
+// nts: TODO: per consumer JWT verification
 func GenerateAccessToken(
 	userID uuid.UUID,
 	email string,
+	consumerID uuid.UUID,
 	privateKey *rsa.PrivateKey,
 ) (string, error) {
 
 	claims := Claims{
-		UserID: userID,
-		Email:  email,
+		UserID:     userID,
+		Email:      email,
+		ConsumerID: consumerID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			Issuer:    "auth-service",

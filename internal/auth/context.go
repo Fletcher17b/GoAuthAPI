@@ -5,12 +5,14 @@ import (
 	"context"
 )
 
-type contextKey string
+type ctxKey string
 
 const (
-	ContextUserID contextKey = "user_id"
-	ContextEmail  contextKey = "email"
-	ContextTenant contextKey = "tenant"
+	ContextUserID    ctxKey = "user_id"
+	ContextEmail     ctxKey = "email"
+	ContextTenant    ctxKey = "tenant"
+	ContextRequestID ctxKey = "request_id"
+	//ContextConsumerID ctxKey = "consumer_id"
 )
 
 func UserIDFromContext(ctx context.Context) (string, bool) {
@@ -23,6 +25,12 @@ func EmailFromContext(ctx context.Context) (string, bool) {
 	return email, ok
 }
 
+/*
+	 func ConsumerIDFromContext(ctx context.Context) (string, bool) {
+		id, ok := ctx.Value(ContextConsumerID).(string)
+		return id, ok
+	}
+*/
 func TenantFromContext(ctx context.Context) (*models.Tenant, bool) {
 	tenant, ok := ctx.Value(ContextTenant).(*models.Tenant)
 	return tenant, ok

@@ -55,8 +55,15 @@ type SignupRequest struct {
 	Password string `json:"password"`
 }
 
+// Basic RFC 9457 HTTP response
 type ErrorResponse struct {
 	Error string `json:"error"`
+
+	Type     string `json:"type,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Status   int    `json:"status,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	Instance string `json:"instance,omitempty"`
 }
 
 //////////////////////////////////
@@ -113,9 +120,22 @@ func VerifyEmailURLConstructor(BaseURL, token string) string {
 func writeJSON(
 	w http.ResponseWriter,
 	status int,
-	body any,
+	body ErrorResponse,
 ) {
-	w.Header().Set("Content-Type", "application/json")
+	if body.Type == "" {
+		body.Type = "about:blank"
+	}
+	if body.Title == "" {
+		body.Title = http.StatusText(status)
+	}
+	if body.Status == 0 {
+		body.Status = status
+	}
+	if body.Detail == "" {
+		body.Detail = body.Error
+	}
+
+	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 
 	_ = json.NewEncoder(w).Encode(body)
@@ -226,12 +246,15 @@ func signupHandler(s *Service) http.HandlerFunc {
 			tenant.ID,
 		)
 		if err != nil {
-			println(err.Error())
 			respondJSONError(w, err)
 			return
 		}
 
-		writeJSON(w, http.StatusCreated, resp)
+		//writeJSON(w, http.StatusCreated, resp)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -323,7 +346,10 @@ func loginHandler(s *Service) http.HandlerFunc {
 		decoder.DisallowUnknownFields()
 
 		if err := decoder.Decode(&req); err != nil {
-			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			//http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
+				Error: "invalid JSON body",
+			})
 			return
 		}
 
@@ -728,7 +754,7 @@ func RegisterRoutes(
 		r.Group(func(r chi.Router) {
 			r.Use(TenantMiddleware(app.TenantRepo))
 			r.Use(RateLimitMiddleware(app.RedisLimiter, app.Logger))
-			r.Post("/password-change", changePasswordHandler(service))
+
 			r.Get("/send-resetemail", sendResetPasswordEmailHandler(service))
 			r.Post("/reset-password", resetPasswordHandler(service))
 
@@ -743,9 +769,11 @@ func RegisterRoutes(
 		})
 
 		r.Group(func(r chi.Router) {
+			r.Use(TenantMiddleware(app.TenantRepo))
 			r.Use(JWTMiddleware(app.PublicKey))
 			r.Get("/me", meHandler())
 			r.Post("/revoke-all", revokeAllHandler(service))
+			r.Post("/password-change", changePasswordHandler(service))
 
 		})
 
