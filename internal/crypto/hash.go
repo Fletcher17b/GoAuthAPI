@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
+	"github.com/google/uuid"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -17,6 +19,13 @@ func HashToken(token, secret string) string {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(token))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func HashApiKey(key uuid.UUID, secret string) string {
+	// This only works for non prefix UUID v7s
+	data := []byte(key.String())
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
 
 func ComparePassword(hash, password string) error {

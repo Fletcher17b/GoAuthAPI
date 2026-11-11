@@ -777,8 +777,16 @@ func RegisterRoutes(
 
 		})
 
-		r.Get("/health", healthhandler(app.Logger, db))
-		r.Get("/swagger/*", httpSwagger.WrapHandler)
+		r.Group(func(r chi.Router) {
+			r.Use(RateLimitMiddleware(app.RedisLimiter, app.Logger))
+			r.Get("/health", healthhandler(app.Logger, db))
+			r.Get("/swagger/*", httpSwagger.WrapHandler)
+		})
+
+		/* r.Group(func(r chi.Router) {
+			r.Post()
+		}) */
+
 	})
 }
 

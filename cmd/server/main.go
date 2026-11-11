@@ -31,7 +31,7 @@ import (
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/ratelimiter"
 	"AuthAPI/main/internal/auth/refresh"
-	"AuthAPI/main/internal/auth/tenants"
+	"AuthAPI/main/internal/auth/repos/tenants"
 	"AuthAPI/main/internal/broker"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/db"
@@ -63,7 +63,7 @@ func main() {
 		panic(err)
 	}
 
-	database, err := db.Open(cfg.Database)
+	database, err := db.Open(cfg.Database, logger)
 	if err != nil {
 		log.Fatal(err)
 		panic(err)

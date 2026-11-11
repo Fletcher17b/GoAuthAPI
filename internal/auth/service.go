@@ -1067,6 +1067,10 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken string, newPasswor
 	return tx.Commit()
 }
 
+/* func (s *Service) ConsumerSignUp(ctx context.Context, consumer ConsumerSignupPacket)
+
+func (s *Service) ConsumerConfirmation(ctx context.Context)
+*/
 // Helpers
 
 func wrapUserCreateError(err error) error {

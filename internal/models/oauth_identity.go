@@ -1,5 +1,7 @@
 package models
 
+// nts: TODO: pendent implementation
+
 import "time"
 
 type OAuthIdentity struct {

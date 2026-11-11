@@ -18,7 +18,7 @@ import (
 	"AuthAPI/main/internal/auth/app"
 	"AuthAPI/main/internal/auth/mail"
 	"AuthAPI/main/internal/auth/refresh"
-	"AuthAPI/main/internal/auth/tenants"
+	"AuthAPI/main/internal/auth/repos/tenants"
 	"AuthAPI/main/internal/config"
 	"AuthAPI/main/internal/outbox"
 	"AuthAPI/main/internal/users"

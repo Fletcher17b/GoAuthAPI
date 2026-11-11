@@ -2,7 +2,7 @@ package auth
 
 import (
 	"AuthAPI/main/internal/auth/ratelimiter"
-	"AuthAPI/main/internal/auth/tenants"
+	"AuthAPI/main/internal/auth/repos/tenants"
 	"bytes"
 	"context"
 	"crypto/rsa"

@@ -4,15 +4,17 @@ import (
 	"AuthAPI/main/internal/config"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func RunPostgresMigrations(db *sql.DB) error {
-	return executeMigration(
+func RunPostgresMigrations(db *sql.DB, logger *slog.Logger) error {
+	return ExecuteMigrations(
 		db,
-		"./migrations/postgres/001_init.sql",
+		"./migrations/postgres/",
+		logger,
 	)
 }
 
@@ -36,7 +38,7 @@ func postgresSchemaExists(db *sql.DB) (bool, error) {
 	return exists, nil
 }
 
-func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
+func OpenPostgres(cfg config.PostgresConfig, logger *slog.Logger) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s",
 		cfg.Host,
@@ -71,7 +73,7 @@ func OpenPostgres(cfg config.PostgresConfig) (*sql.DB, error) {
 		time.Sleep(backoff)
 	}
 
-	if err := RunPostgresMigrations(db); err != nil {
+	if err := RunPostgresMigrations(db, logger); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

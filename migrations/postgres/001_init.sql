@@ -1,3 +1,7 @@
+CREATE SCHEMA IF NOT EXISTS public;
+SET search_path TO public;
+
+
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY,
     email TEXT NOT NULL,
@@ -117,38 +121,12 @@ CREATE TABLE IF NOT EXISTS tenants (
     CHECK (status IN ('pending', 'active', 'suspended')),
 
     public_key TEXT NOT NULL,
-    api_key_hash TEXT NOT NULL,
+    apikey_id UUID,
     allowed_origins JSONB,
     
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
-/* 
-INSERT INTO tenants (
-    tenant_id,
-    tenant_name,
-    name,
-    url,
-    email,
-    status,
-    public_key,
-    api_key_hash,
-    allowed_origins,
-    created_at,
-    updated_at
-) VALUES (
-    '00000000-0000-0000-0000-000000000001',
-    'acme',
-    'Acme Inc.',
-    'https://acme.com',
-    'admin@acme.com',
-    'active',
-    'test-public-key',
-    'test-api-key-hash',
-    '["https://acme.com"]'::jsonb,
-    NOW(),
-    NOW()
-); */
 
 CREATE INDEX IF NOT EXISTS idx_users_email
 ON users(email);

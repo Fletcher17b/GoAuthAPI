@@ -8,51 +8,47 @@ import (
 	"AuthAPI/main/internal/models"
 )
 
-type postgresRepo struct {
+type sqliteRepo struct {
 	db *sql.DB
 }
 
-func NewPostgresRepository(db *sql.DB) TenantRepository {
-	return &postgresRepo{db}
+func NewSQLiteRepository(db *sql.DB) TenantRepository {
+	return &sqliteRepo{db}
 }
 
-func (r *postgresRepo) FindByTenantName(ctx context.Context, tenantName string) (*models.Tenant, error) {
+func (r *sqliteRepo) FindByTenantName(ctx context.Context, tenantName string) (*models.Tenant, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT tenant_id, tenant_name, name, url, email, status,
 		       public_key, api_key_hash, allowed_origins,
 		       created_at, updated_at
 		FROM tenants
-		WHERE tenant_name = $1`,
+		WHERE tenant_name = ?`,
 		tenantName,
 	)
-	return scanTenant(row)
+	return scanSQLiteTenant(row)
 }
 
-func (r *postgresRepo) FindByID(ctx context.Context, id string) (*models.Tenant, error) {
+func (r *sqliteRepo) FindByID(ctx context.Context, id string) (*models.Tenant, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT tenant_id, tenant_name, name, url, email, status,
 		       public_key, api_key_hash, allowed_origins,
 		       created_at, updated_at
 		FROM tenants
-		WHERE tenant_id = $1`,
+		WHERE tenant_id = ?`,
 		id,
 	)
-	return scanTenant(row)
+	return scanSQLiteTenant(row)
 }
 
-type row interface {
-	Scan(dest ...any) error
-}
-
-func scanTenant(row row) (*models.Tenant, error) {
+func scanSQLiteTenant(row row) (*models.Tenant, error) {
 	var t models.Tenant
 	var status string
 	var name sql.NullString
-	var allowedOriginsRaw []byte
+	var allowedOriginsRaw sql.NullString
 
 	if err := row.Scan(
 		&t.ID, &t.TenantName, &name, &t.URL, &t.Email, &status,
-		&t.PublicKey, &t.APIKeyHash, &allowedOriginsRaw,
+		&t.PublicKey, &t.APIKeyID, &allowedOriginsRaw,
 		&t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -61,8 +57,8 @@ func scanTenant(row row) (*models.Tenant, error) {
 	t.Name = name.String
 	t.Status = models.TenantStatus(status)
 
-	if len(allowedOriginsRaw) > 0 {
-		if err := json.Unmarshal(allowedOriginsRaw, &t.AllowedOrigins); err != nil {
+	if allowedOriginsRaw.Valid && allowedOriginsRaw.String != "" {
+		if err := json.Unmarshal([]byte(allowedOriginsRaw.String), &t.AllowedOrigins); err != nil {
 			return nil, err
 		}
 	}

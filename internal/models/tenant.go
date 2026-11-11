@@ -22,7 +22,7 @@ type Tenant struct {
 	Email          string
 	Status         TenantStatus
 	PublicKey      string
-	APIKeyHash     string
+	APIKeyID       uuid.UUID
 	AllowedOrigins []string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
