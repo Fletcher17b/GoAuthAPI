@@ -17,9 +17,10 @@ func NewPostgresRepository(db *sql.DB) TenantRepository {
 }
 
 func (r *postgresRepo) FindByTenantName(ctx context.Context, tenantName string) (*models.Tenant, error) {
+	println("tenant in query: ", tenantName)
 	row := r.db.QueryRowContext(ctx, `
 		SELECT tenant_id, tenant_name, name, url, email, status,
-		       public_key, api_key_hash, allowed_origins,
+		       public_key, allowed_origins,
 		       created_at, updated_at
 		FROM tenants
 		WHERE tenant_name = $1`,
@@ -52,9 +53,10 @@ func scanTenant(row row) (*models.Tenant, error) {
 
 	if err := row.Scan(
 		&t.ID, &t.TenantName, &name, &t.URL, &t.Email, &status,
-		&t.PublicKey, &t.APIKeyID, &allowedOriginsRaw,
+		&t.PublicKey, &allowedOriginsRaw,
 		&t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
+		println("error in query: ", err.Error())
 		return nil, err
 	}
 
